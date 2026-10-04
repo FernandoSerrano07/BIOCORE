@@ -32,3 +32,5 @@ jinja2
 numpy
 opencv-python-headless
 faiss-cpu
+deepface
+tf-keras
