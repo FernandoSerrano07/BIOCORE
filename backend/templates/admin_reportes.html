@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BIOCORE — Reportes</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { background: #f1f5f9; font-family: 'Segoe UI', sans-serif; display: flex; min-height: 100vh; }
+        .sidebar { width:240px; background:#0f172a; color:white; display:flex; flex-direction:column; padding:24px 0; position:fixed; top:0; left:0; bottom:0; }
+        .sidebar .logo { font-size:22px; font-weight:900; color:#00b896; padding:0 24px 24px; border-bottom:1px solid #1e293b; }
+        .sidebar nav a { display:flex; align-items:center; gap:12px; padding:12px 24px; color:#94a3b8; text-decoration:none; font-size:14px; font-weight:500; transition:all 0.2s; }
+        .sidebar nav a:hover, .sidebar nav a.activo { background:#1e293b; color:#00b896; border-right:3px solid #00b896; }
+        .sidebar .admin-info { padding:16px 24px; border-top:1px solid #1e293b; font-size:12px; color:#64748b; }
+        .sidebar .admin-info strong { display:block; color:#cbd5e1; font-size:13px; }
+        .sidebar .logout { display:block; padding:10px 24px; color:#ef4444; text-decoration:none; font-size:13px; }
+        .main { margin-left:240px; flex:1; padding:32px; }
+        h1 { font-size:24px; color:#0f172a; font-weight:800; margin-bottom:24px; }
+
+        .filtros {
+            background: white; border-radius: 16px; padding: 24px;
+            box-shadow: 0 1px 4px rgba(0,0,0,0.07); margin-bottom: 24px;
+            display: grid; grid-template-columns: 2fr 1fr 1fr auto; gap: 16px; align-items: end;
+        }
+        .filtros label { display:block; font-size:12px; color:#64748b; font-weight:600; margin-bottom:6px; text-transform:uppercase; }
+        .filtros select, .filtros input {
+            width:100%; padding:10px 14px; border:1px solid #e2e8f0;
+            border-radius:10px; font-size:14px; color:#0f172a; outline:none;
+        }
+        .filtros select:focus, .filtros input:focus { border-color:#00b896; }
+        .btn-buscar {
+            padding:10px 20px; background:#00b896; color:white;
+            border:none; border-radius:10px; font-weight:700; cursor:pointer;
+            font-size:14px; height:42px;
+        }
+        .btn-buscar:hover { background:#00a080; }
+
+        .accesos-rapidos { display:flex; gap:10px; margin-bottom:16px; flex-wrap:wrap; }
+        .chip { padding:6px 16px; background:white; border:1px solid #e2e8f0; border-radius:20px;
+                font-size:13px; color:#475569; cursor:pointer; transition:all 0.2s; }
+        .chip:hover { background:#00b896; color:white; border-color:#00b896; }
+
+        .resultados { background:white; border-radius:16px; padding:24px; box-shadow:0 1px 4px rgba(0,0,0,0.07); }
+        .resultados-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; flex-wrap:wrap; gap:12px; }
+        .resultados-header h2 { font-size:16px; font-weight:700; color:#0f172a; }
+        .exportar { display:flex; gap:8px; }
+        .btn-exp { padding:8px 16px; border-radius:8px; font-size:13px; font-weight:600;
+                   cursor:pointer; border:none; text-decoration:none; display:inline-flex; align-items:center; gap:6px; }
+        .btn-pdf   { background:#ef4444; color:white; }
+        .btn-excel { background:#16a34a; color:white; }
+        .btn-csv   { background:#0369a1; color:white; }
+        .btn-exp:hover { opacity:0.85; }
+
+        table { width:100%; border-collapse:collapse; font-size:14px; }
+        th { text-align:left; padding:10px 12px; background:#f8fafc; color:#64748b;
+             font-weight:600; font-size:12px; text-transform:uppercase; }
+        td { padding:11px 12px; border-top:1px solid #f1f5f9; color:#1e293b; }
+        tr:hover td { background:#f8fafc; }
+        .fila-total td { background:#0f172a!important; color:white; font-weight:700; }
+        .fila-total .verde { color:#00b896; }
+
+        .resumen-cards { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:20px; }
+        .rcard { background:#f8fafc; border-radius:12px; padding:16px 20px; }
+        .rcard .rl { font-size:12px; color:#64748b; font-weight:600; text-transform:uppercase; }
+        .rcard .rv { font-size:28px; font-weight:800; color:#0f172a; margin-top:4px; }
+        .rcard.verde .rv { color:#00b896; }
+
+        #sin-datos { color:#94a3b8; text-align:center; padding:40px; }
+    </style>
+</head>
+<body>
+
+<div class="sidebar">
+    <div class="logo">⬡ BIOCORE</div>
+    <nav>
+        <a href="/admin/dashboard">📊 Dashboard</a>
+        <a href="/admin/usuarios">👥 Empleados</a>
+        <a href="/admin/reportes" class="activo">📋 Reportes</a>
+        <a href="/admin/justificaciones">📝 Justificaciones</a>
+        {% if admin.es_superadmin %}
+        <a href="/admin/admins">🔐 Administradores</a>
+        {% endif %}
+    </nav>
+    <div class="admin-info">
+        <strong>{{ admin.nombre }}</strong>
+        {{ "Superadmin" if admin.es_superadmin else "Administrador" }}
+    </div>
+    <a href="/admin/logout" class="logout">⎋ Cerrar sesión</a>
+</div>
+
+<div class="main">
+    <h1>📋 Reportes de Marcaciones</h1>
+
+    <div class="accesos-rapidos">
+        <span class="chip" onclick="setRango('hoy')">📅 Hoy</span>
+        <span class="chip" onclick="setRango('semana')">📆 Esta semana</span>
+        <span class="chip" onclick="setRango('mes')">🗓️ Este mes</span>
+        <span class="chip" onclick="setRango('mes_anterior')">⬅️ Mes anterior</span>
+    </div>
+
+    <div class="filtros">
+        <div>
+            <label>Empleado</label>
+            <select id="sel-usuario">
+                <option value="">— Selecciona un empleado —</option>
+                {% for u in usuarios %}
+                <option value="{{ u.id }}">{{ u.nombre }} {{ u.apellido }} — {{ u.cargo }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div>
+            <label>Desde</label>
+            <input type="date" id="fecha-inicio">
+        </div>
+        <div>
+            <label>Hasta</label>
+            <input type="date" id="fecha-fin">
+        </div>
+        <button class="btn-buscar" onclick="buscar()">🔍 Buscar</button>
+    </div>
+
+    <div class="resultados" id="resultados" style="display:none">
+        <div class="resultados-header">
+            <h2 id="titulo-reporte">—</h2>
+            <div class="exportar">
+                <a id="btn-pdf"   class="btn-exp btn-pdf"   href="#" target="_blank">📄 PDF</a>
+                <a id="btn-excel" class="btn-exp btn-excel" href="#" target="_blank">📊 Excel</a>
+                <a id="btn-csv"   class="btn-exp btn-csv"   href="#" target="_blank">📁 CSV</a>
+            </div>
+        </div>
+
+        <div class="resumen-cards">
+            <div class="rcard verde">
+                <div class="rl">Total horas trabajadas</div>
+                <div class="rv" id="total-horas">—</div>
+            </div>
+            <div class="rcard">
+                <div class="rl">Total horas extras</div>
+                <div class="rv" id="total-extras">—</div>
+            </div>
+        </div>
+
+        <table>
+            <thead>
+                <tr>
+                    <th>Fecha</th>
+                    <th>Entrada</th>
+                    <th>Sal. Almuerzo</th>
+                    <th>Reg. Almuerzo</th>
+                    <th>Salida</th>
+                    <th>Hrs. Trabajadas</th>
+                    <th>Hrs. Extras</th>
+                </tr>
+            </thead>
+            <tbody id="tbody-reporte"></tbody>
+        </table>
+    </div>
+    <div id="sin-datos">Selecciona un empleado y un rango de fechas</div>
+</div>
+
+<script>
+const hoy = new Date().toISOString().split('T')[0];
+document.getElementById('fecha-inicio').value = hoy;
+document.getElementById('fecha-fin').value   = hoy;
+
+function setRango(tipo) {
+    const h  = new Date();
+    const fi = document.getElementById('fecha-inicio');
+    const ff = document.getElementById('fecha-fin');
+    ff.value = h.toISOString().split('T')[0];
+    if (tipo === 'hoy') {
+        fi.value = ff.value;
+    } else if (tipo === 'semana') {
+        const lunes = new Date(h); lunes.setDate(h.getDate() - h.getDay() + 1);
+        fi.value = lunes.toISOString().split('T')[0];
+    } else if (tipo === 'mes') {
+        fi.value = `${h.getFullYear()}-${String(h.getMonth()+1).padStart(2,'0')}-01`;
+    } else if (tipo === 'mes_anterior') {
+        const m = new Date(h.getFullYear(), h.getMonth() - 1, 1);
+        const fin = new Date(h.getFullYear(), h.getMonth(), 0);
+        fi.value = m.toISOString().split('T')[0];
+        ff.value = fin.toISOString().split('T')[0];
+    }
+}
+
+function urlParams() {
+    const uid = document.getElementById('sel-usuario').value;
+    const fi  = document.getElementById('fecha-inicio').value;
+    const ff  = document.getElementById('fecha-fin').value;
+    return `usuario_id=${uid}&fecha_inicio=${fi}&fecha_fin=${ff}`;
+}
+
+async function buscar() {
+    const uid = document.getElementById('sel-usuario').value;
+    const fi  = document.getElementById('fecha-inicio').value;
+    const ff  = document.getElementById('fecha-fin').value;
+    if (!uid) { alert('Selecciona un empleado'); return; }
+
+    const r    = await fetch(`/admin/reportes/datos?${urlParams()}`);
+    const data = await r.json();
+
+    document.getElementById('titulo-reporte').textContent =
+        `${data.usuario} — ${fi} al ${ff}`;
+    document.getElementById('total-horas').textContent  = data.total_horas_trabajadas + 'h';
+    document.getElementById('total-extras').textContent = data.total_horas_extras + 'h';
+
+    const params = urlParams();
+    document.getElementById('btn-pdf').href   = `/admin/reportes/pdf?${params}`;
+    document.getElementById('btn-excel').href = `/admin/reportes/excel?${params}`;
+    document.getElementById('btn-csv').href   = `/admin/reportes/csv?${params}`;
+
+    const tbody = document.getElementById('tbody-reporte');
+    if (!data.filas.length) {
+        tbody.innerHTML = '<tr><td colspan="7" style="color:#94a3b8;text-align:center;padding:24px">Sin marcaciones en este período</td></tr>';
+    } else {
+        tbody.innerHTML = data.filas.map(f => `
+            <tr>
+                <td>${f.fecha}</td>
+                <td>${f.entrada}</td>
+                <td>${f.sal_alm}</td>
+                <td>${f.reg_alm}</td>
+                <td>${f.salida}</td>
+                <td><strong>${f.horas}h</strong></td>
+                <td>${f.extras > 0 ? `<span style="color:#f59e0b;font-weight:700">+${f.extras}h</span>` : '—'}</td>
+            </tr>
+        `).join('') + `
+            <tr class="fila-total">
+                <td colspan="5">TOTAL</td>
+                <td>${data.total_horas_trabajadas}h</td>
+                <td class="verde">${data.total_horas_extras > 0 ? '+' + data.total_horas_extras + 'h' : '—'}</td>
+            </tr>
+        `;
+    }
+
+    document.getElementById('resultados').style.display = 'block';
+    document.getElementById('sin-datos').style.display  = 'none';
+}
+</script>
+</body>
+</html>
