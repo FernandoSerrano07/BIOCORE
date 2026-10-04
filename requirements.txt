@@ -31,3 +31,4 @@ python-multipart
 jinja2
 numpy
 opencv-python-headless
+faiss-cpu
