@@ -1,0 +1,369 @@
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: 'Segoe UI', sans-serif;
+    background: #f0f4f8;
+    color: #1a1d2e;
+    min-height: 100vh;
+}
+
+.contenedor {
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 20px;
+}
+
+/* HEADER */
+.header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 20px 0;
+    border-bottom: 1px solid #d1d9e0;
+    margin-bottom: 30px;
+}
+
+.logo {
+    font-size: 28px;
+    font-weight: 700;
+    color: #00b896;
+    letter-spacing: 2px;
+}
+
+.hora-actual {
+    font-size: 22px;
+    color: #6b7280;
+}
+
+/* CÁMARA */
+.camara-box {
+    background: #ffffff;
+    border-radius: 16px;
+    padding: 24px;
+    margin-bottom: 24px;
+    text-align: center;
+    border: 1px solid #d1d9e0;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+}
+
+#video {
+    width: 100%;
+    max-width: 480px;
+    border-radius: 12px;
+    border: 2px solid #00b896;
+}
+
+.estado-camara {
+    margin-top: 12px;
+    font-size: 14px;
+    color: #6b7280;
+}
+
+/* BOTONES DE MARCAJE */
+.botones-marcaje {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 16px;
+    margin-bottom: 24px;
+}
+
+.btn-marcaje {
+    padding: 20px;
+    border: none;
+    border-radius: 12px;
+    font-size: 16px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: transform 0.1s, opacity 0.2s;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.10);
+}
+
+.btn-marcaje:hover {
+    transform: scale(1.02);
+    opacity: 0.92;
+}
+
+.btn-marcaje:active {
+    transform: scale(0.98);
+}
+
+.btn-entrada     { background: #00b896; color: #ffffff; }
+.btn-salida-alm  { background: #f59e0b; color: #ffffff; }
+.btn-regreso-alm { background: #3b82f6; color: #ffffff; }
+.btn-salida      { background: #64748b; color: #ffffff; }
+.btn-imprevisto  { background: #ef4444; color: #ffffff; }
+.btn-enfermedad  { background: #8b5cf6; color: #ffffff; }
+
+.btn-icono { font-size: 28px; }
+
+/* PANEL DE CONFIRMACIÓN */
+.panel-confirmacion {
+    background: #ffffff;
+    border-radius: 16px;
+    padding: 24px;
+    border: 1px solid #d1d9e0;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+    display: none;
+}
+
+.panel-confirmacion.visible {
+    display: block;
+}
+
+.usuario-detectado {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin-bottom: 20px;
+    padding: 16px;
+    background: #f0faf7;
+    border-radius: 12px;
+    border: 1px solid #b2ead9;
+}
+
+.usuario-nombre {
+    font-size: 22px;
+    font-weight: 700;
+    color: #00b896;
+}
+
+.usuario-cargo {
+    font-size: 14px;
+    color: #6b7280;
+    margin-top: 4px;
+}
+
+.similitud {
+    font-size: 12px;
+    color: #9ca3af;
+    margin-top: 4px;
+}
+
+/* JUSTIFICACIÓN */
+.panel-justificacion {
+    margin-top: 16px;
+    display: none;
+}
+
+.panel-justificacion.visible {
+    display: block;
+}
+
+textarea {
+    width: 100%;
+    padding: 12px;
+    background: #f9fafb;
+    border: 1px solid #d1d9e0;
+    border-radius: 8px;
+    color: #1a1d2e;
+    font-size: 14px;
+    resize: vertical;
+    min-height: 80px;
+    margin-bottom: 12px;
+}
+
+.btn-audio {
+    background: #ef4444;
+    color: white;
+    border: none;
+    padding: 10px 20px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 14px;
+    margin-right: 8px;
+}
+
+.btn-audio.grabando {
+    background: #991b1b;
+    animation: pulso 1s infinite;
+}
+
+@keyframes pulso {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.6; }
+}
+
+/* BOTÓN CONFIRMAR */
+.btn-confirmar {
+    width: 100%;
+    padding: 16px;
+    background: #00b896;
+    color: #ffffff;
+    border: none;
+    border-radius: 12px;
+    font-size: 18px;
+    font-weight: 700;
+    cursor: pointer;
+    margin-top: 16px;
+    transition: opacity 0.2s;
+    box-shadow: 0 2px 8px rgba(0,184,150,0.18);
+}
+
+.btn-confirmar:hover { opacity: 0.9; }
+
+/* MENSAJE RESULTADO */
+.mensaje-resultado {
+    text-align: center;
+    padding: 20px;
+    border-radius: 12px;
+    font-size: 18px;
+    font-weight: 600;
+    margin-top: 16px;
+    display: none;
+}
+
+.mensaje-resultado.exito {
+    background: #d1faf0;
+    color: #00b896;
+    display: block;
+    border: 1px solid #b2ead9;
+}
+
+.mensaje-resultado.error {
+    background: #fee2e2;
+    color: #ef4444;
+    display: block;
+    border: 1px solid #fca5a5;
+}
+
+/* FORMULARIO REGISTRO */
+.form-box {
+    background: #ffffff;
+    border-radius: 16px;
+    padding: 32px;
+    border: 1px solid #d1d9e0;
+    margin-bottom: 24px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+}
+
+.form-titulo {
+    font-size: 22px;
+    font-weight: 700;
+    color: #00b896;
+    margin-bottom: 24px;
+}
+
+.form-grupo {
+    margin-bottom: 16px;
+}
+
+label {
+    display: block;
+    font-size: 13px;
+    color: #6b7280;
+    margin-bottom: 6px;
+    font-weight: 500;
+}
+
+input {
+    width: 100%;
+    padding: 12px;
+    background: #f9fafb;
+    border: 1px solid #d1d9e0;
+    border-radius: 8px;
+    color: #1a1d2e;
+    font-size: 15px;
+}
+
+input:focus {
+    outline: none;
+    border-color: #00b896;
+    background: #ffffff;
+}
+
+.form-fila {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+}
+
+.pasos {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 24px;
+}
+
+.paso {
+    flex: 1;
+    padding: 12px;
+    border-radius: 8px;
+    text-align: center;
+    font-size: 13px;
+    background: #ffffff;
+    border: 1px solid #d1d9e0;
+    color: #9ca3af;
+    font-weight: 500;
+}
+
+.paso.activo {
+    border-color: #00b896;
+    color: #00b896;
+    font-weight: 700;
+    background: #f0faf7;
+}
+
+.paso.completado {
+    background: #d1faf0;
+    border-color: #00b896;
+    color: #00b896;
+    font-weight: 700;
+}
+
+.camara-registro {
+    text-align: center;
+    margin-bottom: 20px;
+}
+
+#video-registro {
+    width: 100%;
+    max-width: 360px;
+    border-radius: 12px;
+    border: 2px solid #00b896;
+}
+
+.contador-fotos {
+    display: flex;
+    justify-content: center;
+    gap: 8px;
+    margin-top: 12px;
+}
+
+.foto-dot {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: #e5e7eb;
+    border: 2px solid #d1d9e0;
+    transition: all 0.3s;
+}
+
+.foto-dot.capturada {
+    background: #00b896;
+    border-color: #00b896;
+}
+
+.progreso {
+    margin-top: 16px;
+    font-size: 14px;
+    color: #6b7280;
+    text-align: center;
+}
+
+.btn-volver {
+    display: inline-block;
+    margin-bottom: 20px;
+    color: #6b7280;
+    text-decoration: none;
+    font-size: 14px;
+    font-weight: 500;
+}
+
+.btn-volver:hover { color: #00b896; }

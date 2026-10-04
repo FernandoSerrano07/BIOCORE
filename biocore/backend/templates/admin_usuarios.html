@@ -1,0 +1,677 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BIOCORE — Empleados</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { background: #f1f5f9; font-family: 'Segoe UI', sans-serif; display: flex; min-height: 100vh; }
+
+
+        .sidebar {
+            width: 240px; background: #0f172a; color: white;
+            display: flex; flex-direction: column; padding: 24px 0;
+            position: fixed; top: 0; left: 0; bottom: 0;
+        }
+        .sidebar .logo { font-size: 22px; font-weight: 900; color: #00b896;
+                          padding: 0 24px 24px; border-bottom: 1px solid #1e293b; }
+        .sidebar nav { flex: 1; padding: 16px 0; }
+        .sidebar nav a {
+            display: flex; align-items: center; gap: 12px;
+            padding: 12px 24px; color: #94a3b8; text-decoration: none;
+            font-size: 14px; font-weight: 500; transition: all 0.2s;
+        }
+        .sidebar nav a:hover, .sidebar nav a.activo {
+            background: #1e293b; color: #00b896;
+            border-right: 3px solid #00b896;
+        }
+        .sidebar .admin-info {
+            padding: 16px 24px; border-top: 1px solid #1e293b;
+            font-size: 12px; color: #64748b;
+        }
+        .sidebar .admin-info strong { display: block; color: #cbd5e1; font-size: 13px; }
+        .sidebar .logout { display: block; padding: 10px 24px; color: #ef4444;
+                            text-decoration: none; font-size: 13px; }
+
+
+        .main { margin-left: 240px; flex: 1; padding: 32px; }
+        .topbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 28px; }
+        .topbar h1 { font-size: 24px; color: #0f172a; font-weight: 800; }
+
+
+        .seccion { background: white; border-radius: 16px; padding: 24px;
+                   box-shadow: 0 1px 4px rgba(0,0,0,0.07); }
+        .seccion-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+        .seccion-header h2 { font-size: 16px; font-weight: 700; color: #0f172a; }
+
+
+        table { width: 100%; border-collapse: collapse; font-size: 14px; }
+        th { text-align: left; padding: 10px 12px; background: #f8fafc;
+             color: #64748b; font-weight: 600; font-size: 12px; text-transform: uppercase; }
+        td { padding: 12px; border-top: 1px solid #f1f5f9; color: #1e293b; vertical-align: middle; }
+        tr:hover td { background: #f8fafc; }
+
+
+        .badge-activo { background: #dcfce7; color: #166534; padding: 3px 10px;
+                        border-radius: 20px; font-size: 12px; font-weight: 600; }
+        .badge-inactivo { background: #fee2e2; color: #991b1b; padding: 3px 10px;
+                          border-radius: 20px; font-size: 12px; font-weight: 600; }
+
+
+        /* Foto de perfil */
+        .foto-thumb {
+            width: 44px; height: 44px; border-radius: 50%; object-fit: cover;
+            border: 2px solid #e2e8f0; cursor: pointer; transition: opacity 0.2s;
+        }
+        .foto-thumb:hover { opacity: 0.8; }
+        .foto-placeholder {
+            width: 44px; height: 44px; border-radius: 50%;
+            background: #e2e8f0; display: flex; align-items: center;
+            justify-content: center; font-size: 18px; cursor: pointer;
+            transition: background 0.2s;
+        }
+        .foto-placeholder:hover { background: #cbd5e1; }
+        .foto-wrapper { position: relative; display: inline-block; }
+        .foto-edit-hint {
+            position: absolute; bottom: -2px; right: -2px;
+            background: #00b896; border-radius: 50%; width: 16px; height: 16px;
+            font-size: 9px; display: flex; align-items: center; justify-content: center;
+            color: white; pointer-events: none;
+        }
+
+
+        /* Botones */
+        .btn { padding: 8px 16px; border-radius: 8px; border: none; cursor: pointer;
+               font-size: 13px; font-weight: 600; transition: all 0.2s; }
+        .btn-verde { background: #00b896; color: white; }
+        .btn-verde:hover { background: #009d80; }
+        .btn-rojo { background: #fee2e2; color: #991b1b; }
+        .btn-rojo:hover { background: #fecaca; }
+        .btn-gris { background: #f1f5f9; color: #475569; }
+        .btn-gris:hover { background: #e2e8f0; }
+        .btn-azul { background: #eff6ff; color: #1d4ed8; }
+        .btn-azul:hover { background: #dbeafe; }
+        .btn-sm { padding: 6px 12px; font-size: 12px; }
+
+
+        /* Modales */
+        .modal-overlay {
+            display: none; position: fixed; inset: 0;
+            background: rgba(0,0,0,0.5); z-index: 100;
+            justify-content: center; align-items: center;
+        }
+        .modal-overlay.visible { display: flex; }
+        .modal {
+            background: white; border-radius: 16px; padding: 32px;
+            width: 540px; max-width: 95vw; max-height: 90vh; overflow-y: auto;
+        }
+        .modal h3 { font-size: 18px; font-weight: 800; color: #0f172a; margin-bottom: 20px; }
+        .campo { margin-bottom: 16px; }
+        .campo label { display: block; font-size: 13px; font-weight: 600; color: #475569; margin-bottom: 6px; }
+        .campo input, .campo select {
+            width: 100%; padding: 10px 12px; border: 1.5px solid #e2e8f0;
+            border-radius: 8px; font-size: 14px; color: #0f172a; transition: border 0.2s;
+        }
+        .campo input:focus, .campo select:focus { outline: none; border-color: #00b896; }
+        .fila-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+        .modal-footer { display: flex; gap: 10px; justify-content: flex-end; margin-top: 24px; }
+
+
+        /* Foto upload en modal editar */
+        .foto-upload-area {
+            display: flex; align-items: center; gap: 16px;
+            margin-bottom: 20px; padding: 16px;
+            border: 2px dashed #e2e8f0; border-radius: 12px;
+            cursor: pointer; transition: border-color 0.2s;
+        }
+        .foto-upload-area:hover { border-color: #00b896; }
+        .foto-upload-area.arrastrando { border-color: #00b896; background: #f0fdf4; }
+        .foto-preview-grande {
+            width: 80px; height: 80px; border-radius: 50%; object-fit: cover;
+            border: 3px solid #e2e8f0; flex-shrink: 0;
+        }
+        .foto-preview-placeholder {
+            width: 80px; height: 80px; border-radius: 50%; background: #f1f5f9;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 32px; flex-shrink: 0; border: 3px dashed #e2e8f0;
+        }
+        .foto-upload-texto { flex: 1; }
+        .foto-upload-texto p { font-size: 14px; color: #475569; margin-bottom: 6px; }
+        .foto-upload-texto span { font-size: 12px; color: #94a3b8; }
+
+
+        /* Sección de horario dentro del modal editar */
+        .seccion-modal {
+            border-top: 1px solid #f1f5f9; margin-top: 20px; padding-top: 20px;
+        }
+        .seccion-modal-titulo {
+            font-size: 13px; font-weight: 700; color: #64748b;
+            text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 14px;
+        }
+
+
+        /* Toast */
+        .toast {
+            position: fixed; bottom: 24px; right: 24px;
+            background: #0f172a; color: white; padding: 14px 20px;
+            border-radius: 10px; font-size: 14px; font-weight: 500;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+            opacity: 0; transform: translateY(10px);
+            transition: all 0.3s; z-index: 200;
+        }
+        .toast.show { opacity: 1; transform: translateY(0); }
+        .toast.verde { border-left: 4px solid #00b896; }
+        .toast.rojo  { border-left: 4px solid #ef4444; }
+        .sin-datos { text-align: center; padding: 40px; color: #94a3b8; font-size: 15px; }
+
+
+        /* Spinner en botón */
+        .btn-cargando { opacity: 0.7; pointer-events: none; }
+    </style>
+</head>
+<body>
+
+
+<div class="sidebar">
+    <div class="logo">⬡ BIOCORE</div>
+    <nav>
+        <a href="/admin/dashboard">📊 Dashboard</a>
+        <a href="/admin/usuarios" class="activo">👥 Empleados</a>
+        <a href="/admin/reportes">📋 Reportes</a>
+        <a href="/admin/justificaciones">📝 Justificaciones</a>
+        {% if admin.es_superadmin %}
+        <a href="/admin/admins">🔐 Administradores</a>
+        {% endif %}
+    </nav>
+    <div class="admin-info">
+        <strong>{{ admin.nombre }}</strong>
+        {{ "Superadmin" if admin.es_superadmin else "Administrador" }}
+    </div>
+    <a href="/admin/logout" class="logout">⎋ Cerrar sesión</a>
+</div>
+
+
+<div class="main">
+    <div class="topbar">
+        <h1>👥 Empleados</h1>
+    </div>
+
+
+    <div class="seccion">
+        <div class="seccion-header">
+            <h2>Empleados registrados</h2>
+            <button class="btn btn-verde" onclick="abrirModalCrear()">＋ Nuevo empleado</button>
+        </div>
+
+
+        {% if usuarios %}
+        <table>
+            <thead>
+                <tr>
+                    <th>Foto</th>
+                    <th>Nombre</th>
+                    <th>Cargo</th>
+                    <th>Departamento</th>
+                    <th>Email</th>
+                    <th>Turno</th>
+                    <th>Estado</th>
+                    <th>Acciones</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for u in usuarios %}
+                <tr>
+                    <td>
+                        <div class="foto-wrapper"
+                             onclick="abrirModalEditar(
+                                {{ u.id }},
+                                '{{ u.nombre }}',
+                                '{{ u.apellido }}',
+                                '{{ u.cargo }}',
+                                '{{ u.departamento or '' }}',
+                                '{{ u.email }}',
+                                '{{ u.turno_entrada.strftime('%H:%M') if u.turno_entrada else '' }}',
+                                '{{ u.turno_salida.strftime('%H:%M') if u.turno_salida else '' }}',
+                                {{ u.minutos_almuerzo or 60 }},
+                                {{ u.horas_laborales_dia or 8 }},
+                                {{ u.activo | lower }},
+                                '{{ ('/' + u.foto_path) if u.foto_path else '' }}'
+                             )" title="Clic para editar">
+                            {% if u.foto_path %}
+                            <img src="/{{ u.foto_path }}" class="foto-thumb" alt="Foto">
+                            {% else %}
+                            <div class="foto-placeholder">👤</div>
+                            {% endif %}
+                            <span class="foto-edit-hint">✏️</span>
+                        </div>
+                    </td>
+                    <td><strong>{{ u.nombre }} {{ u.apellido }}</strong></td>
+                    <td>{{ u.cargo }}</td>
+                    <td>{{ u.departamento or "—" }}</td>
+                    <td>{{ u.email }}</td>
+                    <td>
+                        {% if u.turno_entrada and u.turno_salida %}
+                            {{ u.turno_entrada.strftime('%H:%M') }} – {{ u.turno_salida.strftime('%H:%M') }}
+                        {% else %}
+                            <span style="color:#94a3b8">Sin horario</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if u.activo %}
+                        <span class="badge-activo">Activo</span>
+                        {% else %}
+                        <span class="badge-inactivo">Inactivo</span>
+                        {% endif %}
+                    </td>
+                    <td style="display:flex; gap:8px; flex-wrap:wrap;">
+                        <button class="btn btn-azul btn-sm" onclick="abrirModalEditar(
+                                {{ u.id }},
+                                '{{ u.nombre }}',
+                                '{{ u.apellido }}',
+                                '{{ u.cargo }}',
+                                '{{ u.departamento or '' }}',
+                                '{{ u.email }}',
+                                '{{ u.turno_entrada.strftime('%H:%M') if u.turno_entrada else '' }}',
+                                '{{ u.turno_salida.strftime('%H:%M') if u.turno_salida else '' }}',
+                                {{ u.minutos_almuerzo or 60 }},
+                                {{ u.horas_laborales_dia or 8 }},
+                                {{ u.activo | lower }},
+                                '{{ ('/' + u.foto_path) if u.foto_path else '' }}'
+                             )">
+                            ✏️ Editar
+                        </button>
+                        {% if u.activo %}
+                        <button class="btn btn-rojo btn-sm" onclick="desactivar({{ u.id }}, '{{ u.nombre }} {{ u.apellido }}')">
+                            Desactivar
+                        </button>
+                        {% else %}
+                        <button class="btn btn-verde btn-sm" onclick="activar({{ u.id }}, '{{ u.nombre }} {{ u.apellido }}')">
+                            Activar
+                        </button>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div class="sin-datos">No hay empleados registrados aún.</div>
+        {% endif %}
+    </div>
+</div>
+
+
+<!-- ══════════════════════════════════════════
+     MODAL CREAR EMPLEADO
+══════════════════════════════════════════ -->
+<div class="modal-overlay" id="modalCrear">
+    <div class="modal">
+        <h3>➕ Nuevo empleado</h3>
+        <div class="fila-2">
+            <div class="campo">
+                <label>Nombre</label>
+                <input type="text" id="c-nombre" placeholder="Juan">
+            </div>
+            <div class="campo">
+                <label>Apellido</label>
+                <input type="text" id="c-apellido" placeholder="Pérez">
+            </div>
+        </div>
+        <div class="fila-2">
+            <div class="campo">
+                <label>Cargo</label>
+                <input type="text" id="c-cargo" placeholder="Analista">
+            </div>
+            <div class="campo">
+                <label>Departamento</label>
+                <input type="text" id="c-departamento" placeholder="TI">
+            </div>
+        </div>
+        <div class="campo">
+            <label>Email</label>
+            <input type="email" id="c-email" placeholder="juan@empresa.com">
+        </div>
+        <div class="fila-2">
+            <div class="campo">
+                <label>Turno entrada</label>
+                <input type="time" id="c-entrada" value="08:00">
+            </div>
+            <div class="campo">
+                <label>Turno salida</label>
+                <input type="time" id="c-salida" value="17:00">
+            </div>
+        </div>
+        <div class="fila-2">
+            <div class="campo">
+                <label>Min. almuerzo</label>
+                <input type="number" id="c-almuerzo" value="60" min="0" max="120">
+            </div>
+            <div class="campo">
+                <label>Hrs. laborales/día</label>
+                <input type="number" id="c-horas" value="8" min="1" max="12">
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-gris" onclick="cerrarModal('modalCrear')">Cancelar</button>
+            <button class="btn btn-verde" id="btn-crear" onclick="crearEmpleado()">Crear empleado</button>
+        </div>
+    </div>
+</div>
+
+
+<!-- ══════════════════════════════════════════
+     MODAL EDITAR EMPLEADO (completo + foto)
+══════════════════════════════════════════ -->
+<div class="modal-overlay" id="modalEditar">
+    <div class="modal">
+        <h3>✏️ Editar empleado</h3>
+        <input type="hidden" id="e-uid">
+
+
+        <!-- Foto de perfil -->
+        <div class="foto-upload-area" id="fotoDropZone" onclick="document.getElementById('e-foto-input').click()">
+            <div id="e-foto-preview-wrap">
+                <div class="foto-preview-placeholder" id="e-foto-placeholder">👤</div>
+                <img id="e-foto-preview" class="foto-preview-grande" src="" alt="Foto" style="display:none;">
+            </div>
+            <div class="foto-upload-texto">
+                <p><strong>Foto de perfil</strong></p>
+                <p>Clic aquí o arrastra una imagen</p>
+                <span>JPG, PNG — máximo 5 MB</span>
+            </div>
+        </div>
+        <input type="file" id="e-foto-input" accept="image/*" style="display:none;" onchange="previsualizarFoto(this)">
+
+
+        <!-- Datos personales -->
+        <div class="fila-2">
+            <div class="campo">
+                <label>Nombre</label>
+                <input type="text" id="e-nombre" placeholder="Juan">
+            </div>
+            <div class="campo">
+                <label>Apellido</label>
+                <input type="text" id="e-apellido" placeholder="Pérez">
+            </div>
+        </div>
+        <div class="fila-2">
+            <div class="campo">
+                <label>Cargo</label>
+                <input type="text" id="e-cargo" placeholder="Analista">
+            </div>
+            <div class="campo">
+                <label>Departamento</label>
+                <input type="text" id="e-departamento" placeholder="TI">
+            </div>
+        </div>
+        <div class="campo">
+            <label>Email</label>
+            <input type="email" id="e-email" placeholder="juan@empresa.com">
+        </div>
+
+
+        <!-- Horario -->
+        <div class="seccion-modal">
+            <div class="seccion-modal-titulo">🕐 Horario laboral</div>
+            <div class="fila-2">
+                <div class="campo">
+                    <label>Turno entrada</label>
+                    <input type="time" id="e-entrada">
+                </div>
+                <div class="campo">
+                    <label>Turno salida</label>
+                    <input type="time" id="e-salida">
+                </div>
+            </div>
+            <div class="fila-2">
+                <div class="campo">
+                    <label>Min. almuerzo</label>
+                    <input type="number" id="e-almuerzo" min="0" max="120">
+                </div>
+                <div class="campo">
+                    <label>Hrs. laborales/día</label>
+                    <input type="number" id="e-horas" min="1" max="12">
+                </div>
+            </div>
+        </div>
+
+
+        <!-- Estado -->
+        <div class="seccion-modal">
+            <div class="seccion-modal-titulo">⚡ Estado</div>
+            <div class="campo">
+                <label>Estado del empleado</label>
+                <select id="e-activo">
+                    <option value="true">✅ Activo</option>
+                    <option value="false">❌ Inactivo</option>
+                </select>
+            </div>
+        </div>
+
+
+        <div class="modal-footer">
+            <button class="btn btn-gris" onclick="cerrarModal('modalEditar')">Cancelar</button>
+            <button class="btn btn-verde" id="btn-guardar" onclick="guardarEdicion()">💾 Guardar cambios</button>
+        </div>
+    </div>
+</div>
+
+
+<div class="toast" id="toast"></div>
+
+
+<script>
+// ── Utilidades ──────────────────────────────────────────────────────
+function mostrarToast(msg, tipo = 'verde') {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.className = `toast ${tipo} show`;
+    setTimeout(() => t.classList.remove('show'), 3000);
+}
+
+
+function cerrarModal(id) {
+    document.getElementById(id).classList.remove('visible');
+}
+
+
+// ── Modal Crear ─────────────────────────────────────────────────────
+function abrirModalCrear() {
+    document.getElementById('modalCrear').classList.add('visible');
+}
+
+
+async function crearEmpleado() {
+    const btn = document.getElementById('btn-crear');
+    btn.classList.add('btn-cargando');
+    btn.textContent = 'Creando…';
+
+
+    const fd = new FormData();
+    fd.append('nombre',              document.getElementById('c-nombre').value);
+    fd.append('apellido',            document.getElementById('c-apellido').value);
+    fd.append('cargo',               document.getElementById('c-cargo').value);
+    fd.append('departamento',        document.getElementById('c-departamento').value);
+    fd.append('email',               document.getElementById('c-email').value);
+    fd.append('turno_entrada',       document.getElementById('c-entrada').value);
+    fd.append('turno_salida',        document.getElementById('c-salida').value);
+    fd.append('minutos_almuerzo',    document.getElementById('c-almuerzo').value);
+    fd.append('horas_laborales_dia', document.getElementById('c-horas').value);
+
+
+    const r = await fetch('/admin/usuarios/crear', { method: 'POST', body: fd });
+    const data = await r.json();
+
+
+    btn.classList.remove('btn-cargando');
+    btn.textContent = 'Crear empleado';
+
+
+    if (r.ok) {
+        mostrarToast('✅ Empleado creado correctamente');
+        cerrarModal('modalCrear');
+        setTimeout(() => location.reload(), 1200);
+    } else {
+        mostrarToast('❌ ' + (data.detail || 'Error al crear'), 'rojo');
+    }
+}
+
+
+// ── Modal Editar (completo) ─────────────────────────────────────────
+function abrirModalEditar(uid, nombre, apellido, cargo, depto, email,
+                           entrada, salida, almuerzo, horas, activo, fotoUrl) {
+    document.getElementById('e-uid').value      = uid;
+    document.getElementById('e-nombre').value   = nombre;
+    document.getElementById('e-apellido').value = apellido;
+    document.getElementById('e-cargo').value    = cargo;
+    document.getElementById('e-departamento').value = depto;
+    document.getElementById('e-email').value    = email;
+    document.getElementById('e-entrada').value  = entrada;
+    document.getElementById('e-salida').value   = salida;
+    document.getElementById('e-almuerzo').value = almuerzo;
+    document.getElementById('e-horas').value    = horas;
+    document.getElementById('e-activo').value   = activo ? 'true' : 'false';
+
+
+    // Foto
+    const preview     = document.getElementById('e-foto-preview');
+    const placeholder = document.getElementById('e-foto-placeholder');
+    const fileInput   = document.getElementById('e-foto-input');
+    fileInput.value   = '';             // limpia selección anterior
+
+
+    if (fotoUrl) {
+        preview.src           = fotoUrl;
+        preview.style.display = 'block';
+        placeholder.style.display = 'none';
+    } else {
+        preview.style.display     = 'none';
+        placeholder.style.display = 'flex';
+    }
+
+
+    document.getElementById('modalEditar').classList.add('visible');
+}
+
+
+function previsualizarFoto(input) {
+    if (!input.files || !input.files[0]) return;
+    const archivo = input.files[0];
+    if (archivo.size > 5 * 1024 * 1024) {
+        mostrarToast('❌ La imagen supera 5 MB', 'rojo');
+        input.value = '';
+        return;
+    }
+    const reader = new FileReader();
+    reader.onload = (e) => {
+        const preview     = document.getElementById('e-foto-preview');
+        const placeholder = document.getElementById('e-foto-placeholder');
+        preview.src           = e.target.result;
+        preview.style.display = 'block';
+        placeholder.style.display = 'none';
+    };
+    reader.readAsDataURL(archivo);
+}
+
+
+// Drag & Drop sobre la zona de foto
+const dropZone = document.getElementById('fotoDropZone');
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('arrastrando'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('arrastrando'));
+dropZone.addEventListener('drop', e => {
+    e.preventDefault();
+    dropZone.classList.remove('arrastrando');
+    const dt = e.dataTransfer;
+    if (dt.files && dt.files[0]) {
+        const input = document.getElementById('e-foto-input');
+        // Asignar el archivo al input y disparar previsualizarFoto
+        const dataTransfer = new DataTransfer();
+        dataTransfer.items.add(dt.files[0]);
+        input.files = dataTransfer.files;
+        previsualizarFoto(input);
+    }
+});
+
+
+async function guardarEdicion() {
+    const btn = document.getElementById('btn-guardar');
+    btn.classList.add('btn-cargando');
+    btn.textContent = 'Guardando…';
+
+
+    const uid      = document.getElementById('e-uid').value;
+    const fd       = new FormData();
+    const fileInput = document.getElementById('e-foto-input');
+
+
+    fd.append('nombre',              document.getElementById('e-nombre').value);
+    fd.append('apellido',            document.getElementById('e-apellido').value);
+    fd.append('cargo',               document.getElementById('e-cargo').value);
+    fd.append('departamento',        document.getElementById('e-departamento').value);
+    fd.append('email',               document.getElementById('e-email').value);
+    fd.append('turno_entrada',       document.getElementById('e-entrada').value);
+    fd.append('turno_salida',        document.getElementById('e-salida').value);
+    fd.append('minutos_almuerzo',    document.getElementById('e-almuerzo').value);
+    fd.append('horas_laborales_dia', document.getElementById('e-horas').value);
+    fd.append('activo',              document.getElementById('e-activo').value);
+
+
+    if (fileInput.files && fileInput.files[0]) {
+        fd.append('foto', fileInput.files[0]);
+    }
+
+
+    const r = await fetch(`/admin/usuarios/${uid}/editar`, { method: 'PUT', body: fd });
+    const data = await r.json();
+
+
+    btn.classList.remove('btn-cargando');
+    btn.textContent = '💾 Guardar cambios';
+
+
+    if (r.ok) {
+        mostrarToast('✅ Empleado actualizado');
+        cerrarModal('modalEditar');
+        setTimeout(() => location.reload(), 1200);
+    } else {
+        mostrarToast('❌ ' + (data.detail || 'Error al guardar'), 'rojo');
+    }
+}
+
+
+// ── Activar / Desactivar ────────────────────────────────────────────
+async function desactivar(uid, nombre) {
+    if (!confirm(`¿Desactivar a ${nombre}? Ya no podrá marcar asistencia.`)) return;
+    const r = await fetch(`/admin/usuarios/${uid}/desactivar`, { method: 'PUT' });
+    if (r.ok) {
+        mostrarToast('✅ Empleado desactivado');
+        setTimeout(() => location.reload(), 1200);
+    } else {
+        mostrarToast('❌ Error al desactivar', 'rojo');
+    }
+}
+
+
+async function activar(uid, nombre) {
+    if (!confirm(`¿Reactivar a ${nombre}?`)) return;
+    const r = await fetch(`/admin/usuarios/${uid}/activar`, { method: 'PUT' });
+    if (r.ok) {
+        mostrarToast('✅ Empleado reactivado');
+        setTimeout(() => location.reload(), 1200);
+    } else {
+        mostrarToast('❌ Error al activar', 'rojo');
+    }
+}
+
+
+// ── Cerrar modales al hacer clic fuera ─────────────────────────────
+document.querySelectorAll('.modal-overlay').forEach(overlay => {
+    overlay.addEventListener('click', e => {
+        if (e.target === overlay) overlay.classList.remove('visible');
+    });
+});
+</script>
+</body>
+</html>
+

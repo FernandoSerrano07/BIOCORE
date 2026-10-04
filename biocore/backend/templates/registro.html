@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BIOCORE — Registro</title>
+    <link rel="stylesheet" href="/static/css/estilos.css">
+</head>
+<body>
+<div class="contenedor">
+
+    <div class="header">
+        <div class="logo">⬡ BIOCORE</div>
+        <a href="/" class="btn-volver">← Volver al marcaje</a>
+    </div>
+
+    <!-- PASOS -->
+    <div class="pasos">
+        <div class="paso activo" id="paso-1">1. Datos personales</div>
+        <div class="paso" id="paso-2">2. Captura facial</div>
+        <div class="paso" id="paso-3">3. Completado</div>
+    </div>
+
+    <!-- PASO 1: FORMULARIO -->
+    <div id="seccion-formulario">
+        <div class="form-box">
+            <div class="form-titulo">Datos del empleado</div>
+            <div class="form-fila">
+                <div class="form-grupo">
+                    <label>Nombre</label>
+                    <input type="text" id="nombre" placeholder="Ej: Fernando">
+                </div>
+                <div class="form-grupo">
+                    <label>Apellido</label>
+                    <input type="text" id="apellido" placeholder="Ej: García">
+                </div>
+            </div>
+            <div class="form-fila">
+                <div class="form-grupo">
+                    <label>Cargo</label>
+                    <input type="text" id="cargo" placeholder="Ej: Desarrollador">
+                </div>
+                <div class="form-grupo">
+                    <label>Departamento</label>
+                    <input type="text" id="departamento" placeholder="Ej: Tecnología">
+                </div>
+            </div>
+            <div class="form-grupo">
+                <label>Correo electrónico</label>
+                <input type="email" id="email" placeholder="correo@empresa.com">
+            </div>
+            <button class="btn-confirmar" onclick="irACaptura()">
+                Continuar → Captura facial
+            </button>
+        </div>
+    </div>
+
+    <!-- PASO 2: CAPTURA -->
+    <div id="seccion-captura" style="display:none">
+        <div class="form-box">
+            <div class="form-titulo">Captura facial</div>
+            <p style="color:#6b7280; margin-bottom:20px; font-size:14px;">
+                Se tomarán <strong style="color:#1a1d2e">5 fotos automáticas</strong>
+                de tu rostro. Mira directo a la cámara con buena iluminación.
+            </p>
+            <div class="camara-registro">
+                <video id="video-registro" autoplay playsinline></video>
+                <div class="contador-fotos" id="contador-fotos">
+                    <div class="foto-dot" id="dot-1"></div>
+                    <div class="foto-dot" id="dot-2"></div>
+                    <div class="foto-dot" id="dot-3"></div>
+                    <div class="foto-dot" id="dot-4"></div>
+                    <div class="foto-dot" id="dot-5"></div>
+                </div>
+                <div class="progreso" id="progreso-texto">
+                    Listo para capturar
+                </div>
+            </div>
+            <button class="btn-confirmar" id="btn-capturar" onclick="iniciarCaptura()">
+                📸 Iniciar captura de fotos
+            </button>
+        </div>
+    </div>
+
+    <!-- PASO 3: COMPLETADO -->
+    <div id="seccion-completado" style="display:none">
+        <div class="form-box" style="text-align:center; padding: 48px;">
+            <div style="font-size:64px; margin-bottom:20px;">✅</div>
+            <div class="form-titulo" style="font-size:26px;">
+                ¡Registro completado!
+            </div>
+            <p style="color:#6b7280; margin-bottom:32px;" id="msg-completado"></p>
+            <a href="/" class="btn-confirmar"
+               style="display:inline-block; text-decoration:none; text-align:center;">
+                Ir al marcaje
+            </a>
+        </div>
+    </div>
+
+    <!-- ERROR -->
+    <div class="mensaje-resultado" id="mensaje-error"></div>
+
+</div>
+
+<script>
+let streamRegistro = null;
+let datosFormulario = {};
+let capturando = false;
+
+async function iniciarCamaraRegistro() {
+    try {
+        streamRegistro = await navigator.mediaDevices.getUserMedia({ video: true });
+        document.getElementById('video-registro').srcObject = streamRegistro;
+    } catch(e) {
+        mostrarErrorReg('No se pudo acceder a la cámara: ' + e.message);
+    }
+}
+
+function irACaptura() {
+    const nombre      = document.getElementById('nombre').value.trim();
+    const apellido    = document.getElementById('apellido').value.trim();
+    const cargo       = document.getElementById('cargo').value.trim();
+    const email       = document.getElementById('email').value.trim();
+
+    if (!nombre || !apellido || !cargo || !email) {
+        mostrarErrorReg('Por favor completa todos los campos obligatorios.');
+        return;
+    }
+    if (!email.includes('@')) {
+        mostrarErrorReg('El correo electrónico no es válido.');
+        return;
+    }
+
+    datosFormulario = {
+        nombre, apellido, cargo,
+        departamento: document.getElementById('departamento').value.trim(),
+        email
+    };
+
+    document.getElementById('seccion-formulario').style.display = 'none';
+    document.getElementById('seccion-captura').style.display   = 'block';
+    document.getElementById('paso-1').className = 'paso completado';
+    document.getElementById('paso-2').className = 'paso activo';
+    document.getElementById('mensaje-error').className = 'mensaje-resultado';
+
+    iniciarCamaraRegistro();
+}
+
+async function iniciarCaptura() {
+    if (capturando) return;
+    capturando = true;
+
+    document.getElementById('btn-capturar').disabled    = true;
+    document.getElementById('btn-capturar').textContent = 'Capturando...';
+
+    const canvas = document.createElement('canvas');
+    const video  = document.getElementById('video-registro');
+    canvas.width  = video.videoWidth;
+    canvas.height = video.videoHeight;
+
+    const fotos = [];
+
+    for (let i = 3; i > 0; i--) {
+        document.getElementById('progreso-texto').textContent =
+            `Capturando en ${i}...`;
+        await esperar(1000);
+    }
+
+    for (let i = 0; i < 5; i++) {
+        document.getElementById('progreso-texto').textContent =
+            `Capturando foto ${i+1} de 5...`;
+        canvas.getContext('2d').drawImage(video, 0, 0);
+        const blob = await new Promise(r => canvas.toBlob(r, 'image/jpeg', 0.9));
+        fotos.push(blob);
+        document.getElementById(`dot-${i+1}`).classList.add('capturada');
+        await esperar(800);
+    }
+
+    document.getElementById('progreso-texto').textContent =
+        'Procesando encoding facial...';
+
+    const formData = new FormData();
+    formData.append('nombre',       datosFormulario.nombre);
+    formData.append('apellido',     datosFormulario.apellido);
+    formData.append('cargo',        datosFormulario.cargo);
+    formData.append('departamento', datosFormulario.departamento || '');
+    formData.append('email',        datosFormulario.email);
+    fotos.forEach((foto, i) =>
+        formData.append(`foto_${i}`, foto, `foto_${i}.jpg`)
+    );
+
+    try {
+        const respuesta = await fetch('/api/usuarios/registrar-web', {
+            method: 'POST',
+            body: formData
+        });
+        const datos = await respuesta.json();
+
+        if (respuesta.ok) {
+            if (streamRegistro) streamRegistro.getTracks().forEach(t => t.stop());
+            document.getElementById('seccion-captura').style.display   = 'none';
+            document.getElementById('seccion-completado').style.display = 'block';
+            document.getElementById('paso-2').className = 'paso completado';
+            document.getElementById('paso-3').className = 'paso completado';
+            document.getElementById('msg-completado').textContent =
+                `${datosFormulario.nombre} ${datosFormulario.apellido} registrado correctamente. Ya puede marcar asistencia.`;
+        } else {
+            mostrarErrorReg(datos.detail || 'Error al registrar');
+            capturando = false;
+            document.getElementById('btn-capturar').disabled    = false;
+            document.getElementById('btn-capturar').textContent = '📸 Reintentar captura';
+        }
+    } catch(e) {
+        mostrarErrorReg('Error de conexión: ' + e.message);
+        capturando = false;
+        document.getElementById('btn-capturar').disabled    = false;
+        document.getElementById('btn-capturar').textContent = '📸 Reintentar captura';
+    }
+}
+
+function esperar(ms) {
+    return new Promise(r => setTimeout(r, ms));
+}
+
+function mostrarErrorReg(msg) {
+    const el = document.getElementById('mensaje-error');
+    el.textContent  = msg;
+    el.className    = 'mensaje-resultado error';
+}
+</script>
+</body>
+</html>
