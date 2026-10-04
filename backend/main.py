@@ -8,6 +8,16 @@ from api.routes import router
 from api.admin_routes import router as admin_router
 from biometric.detector import precalentar_modelo, construir_indice_faiss
 from sqlalchemy.orm import Session
+import os
+
+# Desactivar aceleración/mensajes innecesarios de TensorFlow
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
+os.environ["CUDA_VISIBLE_DEVICES"] = "-1"  # Forzar uso exclusivo de CPU en modo liviano
+
+import tensorflow as tf
+
+# Limitar asignación de memoria dinámica
+tf.config.set_soft_device_placement(True)
 
 models.Base.metadata.create_all(bind=engine)
 
