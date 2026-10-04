@@ -36,3 +36,5 @@ deepface
 tf-keras
 deepface[tensorflow]
 reportlab
+openpyxl
+xhtml2pdf
