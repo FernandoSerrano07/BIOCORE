@@ -1,13 +1,7 @@
-# Añade esta línea antes del CMD en tu Dockerfile
-ENV PYTHONPATH=/code/backend:/code
-
-# Comando para iniciar Uvicorn
-CMD ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000"]
-
-# Usar imagen oficial liviana de Python 3.11
+# 1. La imagen base SIEMPRE debe ir primero
 FROM python:3.11-slim
 
-# Instalar dependencias del sistema necesarias para OpenCV y compilaciones
+# 2. Instalar paquetes de sistema para OpenCV
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     libgl1 \
@@ -17,21 +11,21 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libxrender-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Crear directorio de trabajo
+# 3. Directorio de trabajo
 WORKDIR /code
 
-# Copiar archivo de requerimientos e instalar dependencias
+# 4. Copiar e instalar requerimientos
 COPY requirements.txt /code/requirements.txt
 RUN pip install --no-cache-dir --upgrade -r /code/requirements.txt
 
-# Copiar todo el código de la aplicación
+# 5. Copiar el resto del proyecto
 COPY . /code
 
-# Otorgar permisos de escritura para que DeepFace pueda guardar modelos descargados
-RUN chmod -R 777 /code
+# 6. Configurar PYTHONPATH para que Python encuentre la carpeta backend y database
+ENV PYTHONPATH=/code/backend:/code
 
-# Exponer el puerto 7860 (puerto por defecto de Hugging Face Spaces)
-EXPOSE 7860
+# 7. Exponer el puerto
+EXPOSE 8000
 
-# Comando para iniciar FastAPI con Uvicorn en el puerto 7860
-CMD ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "7860"]
+# 8. Comando de arranque (debe ir al final de todo)
+CMD ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000"]
