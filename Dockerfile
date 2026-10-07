@@ -1,3 +1,9 @@
+# Añade esta línea antes del CMD en tu Dockerfile
+ENV PYTHONPATH=/code/backend:/code
+
+# Comando para iniciar Uvicorn
+CMD ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000"]
+
 # Usar imagen oficial liviana de Python 3.11
 FROM python:3.11-slim
 
