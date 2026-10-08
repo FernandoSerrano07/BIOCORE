@@ -3,9 +3,11 @@ import os
 # 1. Configuración de entorno para optimización de RAM y TensorFlow (Debe ir al inicio)
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
 os.environ["CUDA_VISIBLE_DEVICES"] = "-1"  # Forzar uso exclusivo de CPU en modo liviano
+os.environ["TF_USE_LEGACY_KERAS"] = "1"    # DeepFace necesita Keras 2 (requiere tf-keras)
 
 import asyncio
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 import tensorflow as tf
 tf.config.set_soft_device_placement(True)
@@ -21,6 +23,15 @@ from database import models
 from api.routes import router
 from api.admin_routes import router as admin_router
 from biometric.detector import construir_indice_faiss  # Se omite precalentar_modelo en startup
+
+# Ruta base: carpeta donde vive este archivo (backend/).
+# Si static/ y templates/ están en la raíz del repo, usa .parent.parent
+BASE_DIR = Path(__file__).resolve().parent
+STATIC_DIR = BASE_DIR / "static"
+TEMPLATES_DIR = BASE_DIR / "templates"
+
+# Evita el crash si la carpeta static no llegó al deploy
+STATIC_DIR.mkdir(exist_ok=True)
 
 
 @asynccontextmanager
@@ -70,9 +81,9 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# Archivos estáticos y plantillas
-app.mount("/static", StaticFiles(directory="static"), name="static")
-templates = Jinja2Templates(directory="templates")
+# Archivos estáticos y plantillas (rutas absolutas)
+app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
 # Incluir rutas de la API y administración
 app.include_router(router, prefix="/api")
