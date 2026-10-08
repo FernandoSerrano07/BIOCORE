@@ -1,15 +1,51 @@
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
+import os
+import asyncio
+from datetime import datetime, date, timedelta
+
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, status
+from fastapi.security import OAuth2PasswordBearer
+from jose import JWTError, jwt
 from sqlalchemy.orm import Session
+
 from database.connection import get_db
 from database.models import Usuario, Marcaje, TipoMarcaje, EstadoJustificacion
 from biometric.detector import generar_encoding, buscar_en_indice, agregar_usuario_al_indice
-from datetime import datetime, date, timedelta
-import asyncio
-import os
 
 router = APIRouter()
 
 FOTOS_DIR = "fotos_registro"
+
+# ── Configuración para Autenticación JWT ──────────────────────────────
+SECRET_KEY = os.getenv("SECRET_KEY", "biocore_secret_key_change_me")
+ALGORITHM = "HS256"
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token", auto_error=False)
+
+def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
+    """Dependencia de autenticación para validar solicitudes seguras."""
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="No autenticado",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="No se pudieron validar las credenciales",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        username: str = payload.get("sub")
+        if username is None:
+            raise credentials_exception
+    except JWTError:
+        raise credentials_exception
+    
+    usuario = db.query(Usuario).filter(Usuario.email == username).first()
+    if usuario is None:
+        raise credentials_exception
+    return usuario
+
 
 # ── Orden válido de marcajes en el día ─────────────────────────────────
 ORDEN_MARCAJES = [
@@ -25,12 +61,15 @@ TIPOS_ESPECIALES = {TipoMarcaje.SALIDA_IMPREVISTA, TipoMarcaje.SALIDA_ENFERMEDAD
 def _marcajes_hoy(usuario_id: int, db: Session):
     """Retorna los marcajes del usuario de hoy, ordenados cronológicamente."""
     hoy = date.today()
+    inicio_dia = datetime.combine(hoy, datetime.min.time())
+    fin_dia = datetime.combine(hoy, datetime.max.time())
+    
     return (
         db.query(Marcaje)
         .filter(
             Marcaje.usuario_id == usuario_id,
-            Marcaje.fecha_hora >= datetime.combine(hoy, datetime.min.time()),
-            Marcaje.fecha_hora <= datetime.combine(hoy, datetime.max.time()),
+            Marcaje.fecha_hora >= inicio_dia,
+            Marcaje.fecha_hora <= fin_dia,
         )
         .order_by(Marcaje.fecha_hora)
         .all()
@@ -46,7 +85,8 @@ def _validar_orden_marcaje(tipo_nuevo: TipoMarcaje, marcajes_hoy: list):
 
     # No puede haber dos marcajes del mismo tipo el mismo día
     if tipo_nuevo in tipos_hoy:
-        return f"Ya registraste '{tipo_nuevo.value}' hoy."
+        val_str = tipo_nuevo.value if hasattr(tipo_nuevo, 'value') else str(tipo_nuevo)
+        return f"Ya registraste '{val_str}' hoy."
 
     if tipo_nuevo == TipoMarcaje.ENTRADA:
         # La entrada siempre es el primero — si ya hay algo, error
@@ -92,7 +132,7 @@ def _calcular_tardanza_minutos(usuario: Usuario, hora_entrada: datetime):
         return 0
 
     turno_dt = datetime.combine(hora_entrada.date(), usuario.turno_entrada)
-    diferencia = (hora_entrada - turno_dt).total_seconds() / 60
+    diferencia = (hora_entrada - turno_dt).total_seconds() / 60.0
 
     # Tolerancia de 5 minutos
     if diferencia > 5:
@@ -117,7 +157,7 @@ def _calcular_horas_extra_minutos(usuario: Usuario, marcajes_hoy: list):
         return 0
 
     turno_salida_dt = datetime.combine(salida.fecha_hora.date(), usuario.turno_salida)
-    diferencia = (salida.fecha_hora - turno_salida_dt).total_seconds() / 60
+    diferencia = (salida.fecha_hora - turno_salida_dt).total_seconds() / 60.0
 
     if diferencia > 0:
         return int(diferencia)
@@ -239,26 +279,29 @@ async def verificar_identidad(foto: UploadFile = File(...), db: Session = Depend
 
     # Retornar también qué marcaje puede hacer a continuación
     marcajes_hoy = _marcajes_hoy(usuario_id, db)
-    tipos_hoy    = [m.tipo.value for m in marcajes_hoy]
+    tipos_hoy = [
+        m.tipo.value if hasattr(m.tipo, 'value') else str(m.tipo) 
+        for m in marcajes_hoy
+    ]
 
     return {
-        "identificado":  True,
-        "usuario_id":    usuario.id,
-        "nombre":        f"{usuario.nombre} {usuario.apellido}",
-        "cargo":         usuario.cargo,
-        "departamento":  usuario.departamento,
-        "similitud":     round(similitud * 100, 2),
-        "marcajes_hoy":  tipos_hoy,
+        "identificado": True,
+        "usuario_id": usuario.id,
+        "nombre": f"{usuario.nombre} {usuario.apellido}",
+        "cargo": usuario.cargo,
+        "departamento": usuario.departamento,
+        "similitud": round(float(similitud) * 100, 2),
+        "marcajes_hoy": tipos_hoy,
         "turno_entrada": str(usuario.turno_entrada) if usuario.turno_entrada else None,
-        "turno_salida":  str(usuario.turno_salida)  if usuario.turno_salida  else None,
+        "turno_salida": str(usuario.turno_salida) if usuario.turno_salida else None,
     }
 
 
 @router.post("/marcaje/registrar")
 def registrar_marcaje(
-    usuario_id:           int = Form(...),
-    tipo:                 str = Form(...),
-    justificacion_texto:  str = Form(None),
+    usuario_id: int = Form(...),
+    tipo: str = Form(...),
+    justificacion_texto: str = Form(None),
     similitud_biometrica: float = Form(None),
     db: Session = Depends(get_db),
 ):
@@ -274,7 +317,7 @@ def registrar_marcaje(
 
     # ── Validar orden del flujo ────────────────────────────────────────
     marcajes_hoy = _marcajes_hoy(usuario_id, db)
-    error_orden  = _validar_orden_marcaje(tipo_enum, marcajes_hoy)
+    error_orden = _validar_orden_marcaje(tipo_enum, marcajes_hoy)
     if error_orden:
         raise HTTPException(status_code=400, detail=error_orden)
 
@@ -292,7 +335,7 @@ def registrar_marcaje(
     minutos_extra = 0
     if tipo_enum in (TipoMarcaje.SALIDA, *TIPOS_ESPECIALES):
         todos_marcajes = marcajes_hoy  # todavía no incluye el actual
-        minutos_extra  = _calcular_horas_extra_minutos(usuario, todos_marcajes)
+        minutos_extra = _calcular_horas_extra_minutos(usuario, todos_marcajes)
 
     nuevo_marcaje = Marcaje(
         usuario_id=usuario_id,
@@ -309,11 +352,11 @@ def registrar_marcaje(
     db.refresh(nuevo_marcaje)
 
     respuesta = {
-        "mensaje":      "Marcaje registrado correctamente",
-        "marcaje_id":   nuevo_marcaje.id,
-        "tipo":         tipo,
-        "fecha_hora":   nuevo_marcaje.fecha_hora,
-        "es_especial":  es_especial,
+        "mensaje": "Marcaje registrado correctamente",
+        "marcaje_id": nuevo_marcaje.id,
+        "tipo": tipo,
+        "fecha_hora": nuevo_marcaje.fecha_hora,
+        "es_especial": es_especial,
     }
 
     if minutos_tardanza > 0:
@@ -338,7 +381,7 @@ async def guardar_audio(
     carpeta_audio = "static/audio"
     os.makedirs(carpeta_audio, exist_ok=True)
     nombre_audio = f"audio_{marcaje_id}_{datetime.now().strftime('%Y%m%d%H%M%S')}.webm"
-    ruta_audio   = os.path.join(carpeta_audio, nombre_audio)
+    ruta_audio = os.path.join(carpeta_audio, nombre_audio)
 
     contenido = await audio.read()
     with open(ruta_audio, "wb") as f:
@@ -356,7 +399,7 @@ async def guardar_audio(
 def historial_empleado(
     usuario_id: int,
     fecha_inicio: str = None,
-    fecha_fin:    str = None,
+    fecha_fin: str = None,
     db: Session = Depends(get_db),
 ):
     """Retorna el historial de marcajes de un empleado con tardanzas y extras."""
@@ -371,20 +414,20 @@ def historial_empleado(
         query = query.filter(Marcaje.fecha_hora >= fi)
     if fecha_fin:
         ff = datetime.strptime(fecha_fin, "%Y-%m-%d")
-        query = query.filter(Marcaje.fecha_hora <= ff.replace(hour=23, minute=59))
+        query = query.filter(Marcaje.fecha_hora <= ff.replace(hour=23, minute=59, second=59))
 
     marcajes = query.order_by(Marcaje.fecha_hora.desc()).all()
 
     return [
         {
-            "id":                   m.id,
-            "tipo":                 m.tipo.value,
-            "fecha_hora":           m.fecha_hora,
-            "es_especial":          m.es_especial,
-            "minutos_tardanza":     m.minutos_tardanza,
-            "minutos_extra":        m.minutos_extra,
-            "estado_justificacion": m.estado_justificacion.value if m.estado_justificacion else None,
-            "comentario_admin":     m.comentario_admin,
+            "id": m.id,
+            "tipo": m.tipo.value if hasattr(m.tipo, 'value') else str(m.tipo),
+            "fecha_hora": m.fecha_hora,
+            "es_especial": m.es_especial,
+            "minutos_tardanza": m.minutos_tardanza,
+            "minutos_extra": m.minutos_extra,
+            "estado_justificacion": m.estado_justificacion.value if m.estado_justificacion and hasattr(m.estado_justificacion, 'value') else (str(m.estado_justificacion) if m.estado_justificacion else None),
+            "comentario_admin": m.comentario_admin,
         }
         for m in marcajes
     ]
