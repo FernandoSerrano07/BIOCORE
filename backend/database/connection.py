@@ -44,10 +44,11 @@ def get_db():
         db.close()
 
 
-def init_extensions():
+def init_extensions(eng=None):
     """Crea la extensión pgvector si la base de datos la soporta."""
+    eng = eng or engine
     try:
-        with engine.begin() as conn:
+        with eng.begin() as conn:
             conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
         logger.info("Extensión pgvector lista.")
     except Exception as exc:
