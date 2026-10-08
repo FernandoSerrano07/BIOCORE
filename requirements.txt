@@ -1,20 +1,32 @@
-fastapi
-uvicorn
-sqlalchemy
-psycopg[binary]
-python-dotenv
-pydantic
-passlib[bcrypt]
-python-jose[cryptography]
+# ---- Web / API ----
+fastapi>=0.115,<1.0
+uvicorn[standard]>=0.30,<1.0
 python-multipart
 jinja2
-numpy
-opencv-python-headless
-faiss-cpu
-tensorflow
-deepface[tensorflow]
+python-dotenv
+pydantic>=2.7,<3.0
+pydantic-settings>=2.3,<3.0
+
+# ---- Base de datos ----
+sqlalchemy>=2.0,<2.1
+# SIN [binary]: usa la libpq5 del sistema (instalada en el Dockerfile)
+# para evitar el choque de OpenSSL/libpq con TensorFlow y faiss
+psycopg>=3.2,<3.3
+
+# ---- Autenticacion ----
+passlib[bcrypt]
+bcrypt==4.0.1            # versiones >=4.1 rompen passlib
+python-jose[cryptography]
+
+# ---- Numerico / IA (combinacion estable con DeepFace) ----
+numpy>=1.26,<2           # numpy 2.x rompe h5py/faiss/TF de esta generacion
+tensorflow==2.15.1       # trae Keras 2.15, por eso ya NO se necesita tf-keras
+protobuf>=3.20.3,<5
+faiss-cpu==1.8.0
+opencv-python-headless>=4.9,<4.11
+deepface==0.0.93         # instala sobre el TensorFlow ya fijado arriba
+
+# ---- Reportes / documentos ----
 reportlab
 openpyxl
 xhtml2pdf
-pydantic-settings
-tf-keras
