@@ -4,6 +4,9 @@ import os
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
 os.environ["CUDA_VISIBLE_DEVICES"] = "-1"  # Forzar uso exclusivo de CPU en modo liviano
 
+import asyncio
+from contextlib import asynccontextmanager
+
 import tensorflow as tf
 tf.config.set_soft_device_placement(True)
 
@@ -11,45 +14,36 @@ from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
+from sqlalchemy.orm import Session
+
 from database.connection import engine, get_db, init_extensions
 from database import models
 from api.routes import router
 from api.admin_routes import router as admin_router
 from biometric.detector import construir_indice_faiss  # Se omite precalentar_modelo en startup
-from sqlalchemy.orm import Session
-
-# Crear tablas en la base de datos si no existen
-models.Base.metadata.create_all(bind=engine)
-
-app = FastAPI(title="BIOCORE", description="Sistema biométrico de asistencia")
-
-# Archivos estáticos y plantillas
-app.mount("/static", StaticFiles(directory="static"), name="static")
-templates = Jinja2Templates(directory="templates")
-
-# Incluir rutas de la API y administración
-app.include_router(router, prefix="/api")
-app.include_router(admin_router)
 
 
-@app.on_event("startup")
-async def startup_event():
-    import asyncio
-
-    # 1. Activar extensiones de PostgreSQL
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # 1. Activar extensiones de PostgreSQL (debe ir ANTES de crear las tablas)
     try:
         init_extensions(engine)
         print("✅ Extensiones PostgreSQL activadas.")
     except Exception as e:
         print(f"⚠️ Extensiones: {e}")
 
-    # 2. Precalentamiento de Facenet desactivado para ahorrar RAM en el plan Free
-    # El modelo se cargará automáticamente de forma liviana con la primera petición biométrica.
-    # loop = asyncio.get_event_loop()
-    # await loop.run_in_executor(None, precalentar_modelo)
+    # 2. Crear tablas en la base de datos si no existen
+    try:
+        models.Base.metadata.create_all(bind=engine)
+        print("✅ Tablas verificadas.")
+    except Exception as e:
+        print(f"⚠️ Error al crear tablas: {e}")
 
-    # 3. Construir índice FAISS ligero con los encodings existentes en la BD
-    loop = asyncio.get_event_loop()
+    # 3. Precalentamiento de Facenet desactivado para ahorrar RAM en el plan Free.
+    # El modelo se cargará de forma liviana con la primera petición biométrica.
+
+    # 4. Construir índice FAISS ligero con los encodings existentes en la BD
+    loop = asyncio.get_running_loop()
     db: Session = next(get_db())
     try:
         usuarios = (
@@ -66,6 +60,23 @@ async def startup_event():
         print(f"⚠️ Error al construir índice FAISS: {e}")
     finally:
         db.close()
+
+    yield  # La app queda corriendo aquí
+
+
+app = FastAPI(
+    title="BIOCORE",
+    description="Sistema biométrico de asistencia",
+    lifespan=lifespan,
+)
+
+# Archivos estáticos y plantillas
+app.mount("/static", StaticFiles(directory="static"), name="static")
+templates = Jinja2Templates(directory="templates")
+
+# Incluir rutas de la API y administración
+app.include_router(router, prefix="/api")
+app.include_router(admin_router)
 
 
 @app.get("/registro", response_class=HTMLResponse)
