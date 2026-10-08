@@ -16,3 +16,4 @@ deepface[tensorflow]
 reportlab
 openpyxl
 xhtml2pdf
+pydantic-settings
