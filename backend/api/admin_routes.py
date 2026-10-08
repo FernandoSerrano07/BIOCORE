@@ -37,7 +37,7 @@ SUPERADMIN_PASSWORD       = os.getenv("SUPERADMIN_PASSWORD", "cambia-esto")
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 # ── Rate limiting en memoria (login) ───────────────────────────────────
-# { ip: [timestamp, timestamp, ...] }  — máx 10 intentos por 5 minutos
+# { ip: [timestamp, timestamp, ...] } — máx 10 intentos por 5 minutos
 _login_intentos: dict[str, list] = defaultdict(list)
 MAX_INTENTOS_LOGIN  = 10
 VENTANA_LOGIN_SEG   = 300   # 5 minutos
@@ -140,6 +140,7 @@ def _log(
 # ══════════════════════════════════════════
 
 @router.get("/admin/login", response_class=HTMLResponse)
+@router.get("/admin_login", response_class=HTMLResponse)
 async def login_page(request: Request):
     return templates.TemplateResponse(request, "admin_login.html")
 
@@ -241,8 +242,8 @@ async def dashboard(
         "marcajes_hoy":      marcajes_hoy,
         "entradas_hoy":      entradas_hoy,
         "justif_pendientes": justif_pendientes,
-        "tardanzas_hoy":     tardanzas_hoy,
-        "hoy":               hoy.strftime("%d/%m/%Y"),
+        "tardanzas_hoy":      tardanzas_hoy,
+        "hoy":                hoy.strftime("%d/%m/%Y"),
     })
 
 
@@ -417,7 +418,7 @@ async def ver_auditoria(
 
 
 # ══════════════════════════════════════════
-#  HELPERS DE CÁLCULO (sin cambios)
+#  HELPERS DE CÁLCULO
 # ══════════════════════════════════════════
 
 def calcular_horas_dia(marcajes_dia: list, usuario: Usuario):
@@ -836,7 +837,7 @@ async def resumen_semana(
         resultado.append({
             "id":            u.id,
             "nombre":        f"{u.nombre} {u.apellido}",
-            "cargo":         u.cargo,
+            "cargo":          u.cargo,
             "horas_semana":  round(total_h, 2),
             "extras_semana": round(total_e, 2),
         })
