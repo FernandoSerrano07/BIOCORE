@@ -1,9 +1,14 @@
 import os
+import faulthandler
+
+# Si el proceso muere por un crash nativo, imprime en qué línea de Python estaba
+faulthandler.enable()
 
 # 1. Configuración de entorno para optimización de RAM y TensorFlow (Debe ir al inicio)
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
 os.environ["CUDA_VISIBLE_DEVICES"] = "-1"  # Forzar uso exclusivo de CPU en modo liviano
 os.environ["TF_USE_LEGACY_KERAS"] = "1"    # DeepFace necesita Keras 2 (requiere tf-keras)
+os.environ.setdefault("OMP_NUM_THREADS", "1")  # Evita choques de OpenMP entre TensorFlow y FAISS
 
 import asyncio
 from contextlib import asynccontextmanager
@@ -36,24 +41,35 @@ STATIC_DIR.mkdir(exist_ok=True)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    print("▶️ Iniciando lifespan", flush=True)
+
     # 1. Activar extensiones de PostgreSQL (debe ir ANTES de crear las tablas)
+    print("▶️ Paso 1: extensiones PostgreSQL", flush=True)
     try:
         init_extensions(engine)
-        print("✅ Extensiones PostgreSQL activadas.")
+        print("✅ Extensiones PostgreSQL activadas.", flush=True)
     except Exception as e:
-        print(f"⚠️ Extensiones: {e}")
+        print(f"⚠️ Extensiones: {e}", flush=True)
 
     # 2. Crear tablas en la base de datos si no existen
+    print("▶️ Paso 2: creando tablas", flush=True)
     try:
         models.Base.metadata.create_all(bind=engine)
-        print("✅ Tablas verificadas.")
+        print("✅ Tablas verificadas.", flush=True)
     except Exception as e:
-        print(f"⚠️ Error al crear tablas: {e}")
+        print(f"⚠️ Error al crear tablas: {e}", flush=True)
 
     # 3. Precalentamiento de Facenet desactivado para ahorrar RAM en el plan Free.
     # El modelo se cargará de forma liviana con la primera petición biométrica.
 
+    # Diagnóstico: con la variable SKIP_FAISS=1 se omite el índice FAISS
+    if os.getenv("SKIP_FAISS") == "1":
+        print("⏭️ FAISS omitido por SKIP_FAISS", flush=True)
+        yield
+        return
+
     # 4. Construir índice FAISS ligero con los encodings existentes en la BD
+    print("▶️ Paso 3: construyendo índice FAISS", flush=True)
     loop = asyncio.get_running_loop()
     db: Session = next(get_db())
     try:
@@ -64,14 +80,15 @@ async def lifespan(app: FastAPI):
         )
         if usuarios:
             await loop.run_in_executor(None, construir_indice_faiss, usuarios)
-            print("✅ Índice FAISS inicializado correctamente.")
+            print("✅ Índice FAISS inicializado correctamente.", flush=True)
         else:
-            print("ℹ️ No hay usuarios registrados con rostros aún.")
+            print("ℹ️ No hay usuarios registrados con rostros aún.", flush=True)
     except Exception as e:
-        print(f"⚠️ Error al construir índice FAISS: {e}")
+        print(f"⚠️ Error al construir índice FAISS: {e}", flush=True)
     finally:
         db.close()
 
+    print("🚀 Lifespan completo, app lista", flush=True)
     yield  # La app queda corriendo aquí
 
 
