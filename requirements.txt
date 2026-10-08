@@ -7,24 +7,24 @@ python-dotenv
 pydantic>=2.7,<3.0
 pydantic-settings>=2.3,<3.0
 
-# ---- Base de datos ----
+# ---- Base de datos (Supabase / SQLAlchemy) ----
 sqlalchemy>=2.0,<2.1
-# SIN [binary]: usa la libpq5 del sistema (instalada en el Dockerfile)
-# para evitar el choque de OpenSSL/libpq con TensorFlow y faiss
+psycopg2-binary>=2.9.9   # Necesario para el driver de PostgreSQL en SQLAlchemy/Supabase
 psycopg>=3.2,<3.3
 
-# ---- Autenticacion ----
+# ---- Autenticación ----
 passlib[bcrypt]
-bcrypt==4.0.1            # versiones >=4.1 rompen passlib
+bcrypt==4.0.1            # Versiones >=4.1 rompen passlib
 python-jose[cryptography]
 
-# ---- Numerico / IA (combinacion estable con DeepFace) ----
-numpy>=1.26,<2           # numpy 2.x rompe h5py/faiss/TF de esta generacion
-tensorflow==2.15.1       # trae Keras 2.15, por eso ya NO se necesita tf-keras
+# ---- Numérico / IA (Compatibilidad DeepFace + TensorFlow) ----
+numpy>=1.26.0,<2.0.0     # Mantiene compatibilidad con h5py/faiss/TF
+tensorflow==2.15.0       # Versión estable compatible con tf-keras
+tf-keras==2.15.0         # PROVEE 'tensorflow.keras' QUE PIDE DEEPFACE
 protobuf>=3.20.3,<5
 faiss-cpu==1.8.0
 opencv-python-headless>=4.9,<4.11
-deepface==0.0.93         # instala sobre el TensorFlow ya fijado arriba
+deepface==0.0.93
 
 # ---- Reportes / documentos ----
 reportlab
