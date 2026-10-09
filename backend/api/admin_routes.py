@@ -1,6 +1,7 @@
 import csv
 from datetime import date, datetime, timedelta
 import io
+import json
 import os
 import time
 from collections import defaultdict
@@ -16,6 +17,7 @@ from database.models import (
     TipoAccion,
     TipoMarcaje,
     Usuario,
+    administrador_sucursales,
 )
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, Response
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
@@ -29,7 +31,7 @@ from reportlab.lib.pagesizes import A4, landscape
 from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.lib.units import cm
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
-from sqlalchemy import func as sqlfunc
+from sqlalchemy import func as sqlfunc, text
 from sqlalchemy.orm import Session
 
 router = APIRouter()
@@ -78,7 +80,7 @@ def _check_rate_limit_login(ip: str):
 
 
 # ══════════════════════════════════════════
-# HELPERS AUTH
+# HELPERS AUTH & ALCANCE MULTI-SUCURSAL
 # ══════════════════════════════════════════
 
 def verificar_password(plain: str, hashed: str) -> bool:
@@ -96,11 +98,19 @@ def crear_token(data: dict, minutos: int = ACCESS_TOKEN_MINUTES) -> str:
     return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
 
 
+def sucursales_visibles(admin: dict, db: Session):
+    """None = todas las sucursales (Superadmin). Lista de IDs = solo asignadas."""
+    if admin.get("es_superadmin"):
+        return None
+    filas = db.execute(
+        text("SELECT sucursal_id FROM administrador_sucursales WHERE admin_id = :i"),
+        {"i": admin["id"]},
+    ).all()
+    return [f[0] for f in filas]
+
+
 def obtener_admin_actual(request: Request, db: Session = Depends(get_db)) -> dict:
-    """
-    Lee el JWT de la cookie, lo valida y retorna el dict del admin
-    con las sucursales asignadas.
-    """
+    """Lee el JWT de la cookie, lo valida y retorna el dict del admin con sus permisos."""
     token = request.cookies.get("biocore_token")
     if not token:
         raise HTTPException(status_code=401, detail="No autenticado")
@@ -112,27 +122,27 @@ def obtener_admin_actual(request: Request, db: Session = Depends(get_db)) -> dic
         raise HTTPException(status_code=401, detail=f"Sesión inválida o expirada: {e}")
 
     if es_super:
-        sucursales_ids = [s.id for s in db.query(Sucursal).all()]
+        sucursales_objs = db.query(Sucursal).filter(Sucursal.activa == True).all()
         return {
             "id": 0,
             "nombre": "Soporte BioCore",
             "email": email,
             "es_superadmin": True,
-            "sucursales_ids": sucursales_ids,
+            "sucursales_ids": [s.id for s in sucursales_objs],
         }
 
     admin = db.query(Administrador).filter(Administrador.email == email).first()
     if not admin:
         raise HTTPException(status_code=401, detail="Administrador no encontrado")
 
-    sucursales_ids = [s.id for s in admin.sucursales] if hasattr(admin, "sucursales") else []
+    visibles = sucursales_visibles({"id": admin.id, "es_superadmin": False}, db)
 
     return {
         "id": admin.id,
         "nombre": admin.nombre,
         "email": admin.email,
         "es_superadmin": getattr(admin, "es_superadmin", False),
-        "sucursales_ids": sucursales_ids,
+        "sucursales_ids": visibles,
     }
 
 
@@ -141,6 +151,38 @@ def requiere_superadmin(admin=Depends(obtener_admin_actual)) -> dict:
     if not admin.get("es_superadmin"):
         raise HTTPException(status_code=403, detail="Solo superadministradores")
     return admin
+
+
+def exigir_acceso_usuario(db: Session, admin: dict, usuario_id: int) -> Usuario:
+    """Retorna el usuario si el admin tiene acceso a su sucursal, o lanza 404."""
+    usuario = db.query(Usuario).filter(Usuario.id == usuario_id).first()
+    if not usuario:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    if not admin.get("es_superadmin"):
+        if usuario.sucursal_id not in admin.get("sucursales_ids", []):
+            raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    return usuario
+
+
+def exigir_acceso_marcaje(db: Session, admin: dict, marcaje_id: int) -> Marcaje:
+    """Retorna el marcaje si el admin tiene acceso a su sucursal, o lanza 404."""
+    marcaje = db.query(Marcaje).filter(Marcaje.id == marcaje_id).first()
+    if not marcaje:
+        raise HTTPException(status_code=404, detail="Marcaje no encontrado")
+    if not admin.get("es_superadmin"):
+        if marcaje.sucursal_id not in admin.get("sucursales_ids", []):
+            raise HTTPException(status_code=404, detail="Marcaje no encontrado")
+    return marcaje
+
+
+def _obtener_lista_sucursales_admin(admin: dict, db: Session):
+    """Devuelve objetos Sucursal que el admin puede seleccionar en el frontend."""
+    if admin.get("es_superadmin"):
+        return db.query(Sucursal).order_by(Sucursal.nombre).all()
+    visibles = admin.get("sucursales_ids", [])
+    if not visibles:
+        return []
+    return db.query(Sucursal).filter(Sucursal.id.in_(visibles)).order_by(Sucursal.nombre).all()
 
 
 # ══════════════════════════════════════════
@@ -154,12 +196,12 @@ def _log(
     detalle: dict = None,
     ip: str = None,
 ):
-    """Registra una acción de admin en logs_auditoria pasando directamente el diccionario/JSON."""
+    """Registra una acción de admin en logs_auditoria pasando el JSON directo."""
     entrada = LogAuditoria(
         admin_id=admin["id"] if admin["id"] != 0 else None,
         admin_email=admin["email"],
         accion=accion,
-        detalle=detalle,  # Pasa directamente el dict/JSON sin json.dumps()
+        detalle=detalle,
         ip=ip,
     )
     db.add(entrada)
@@ -186,7 +228,6 @@ async def login(
     ip = _ip(request)
     _check_rate_limit_login(ip)
 
-    # Superadmin maestro (credenciales desde .env)
     if email == SUPERADMIN_EMAIL and password == SUPERADMIN_PASSWORD:
         token = crear_token({"sub": email, "superadmin": True})
         resp = RedirectResponse(url="/admin/dashboard", status_code=302)
@@ -206,14 +247,12 @@ async def login(
         )
         return resp
 
-    # Admin normal
     admin = db.query(Administrador).filter(Administrador.email == email).first()
     if not admin or not verificar_password(password, admin.password_hash):
         return templates.TemplateResponse(
             request, "admin_login.html", {"error": "Credenciales incorrectas"}
         )
 
-    # Actualizar último login
     if hasattr(admin, "ultimo_login"):
         admin.ultimo_login = datetime.utcnow()
         db.commit()
@@ -257,11 +296,21 @@ async def logout(
 @router.get("/admin/dashboard", response_class=HTMLResponse)
 async def dashboard(
     request: Request,
+    sucursal_id: int = None,
     db: Session = Depends(get_db),
     admin=Depends(obtener_admin_actual),
 ):
     hoy = date.today()
-    sucursales_ids = admin.get("sucursales_ids", [])
+    sucursales_disponibles = _obtener_lista_sucursales_admin(admin, db)
+    sucursales_ids = [s.id for s in sucursales_disponibles]
+
+    # Filtrado por selector de sucursal
+    if sucursal_id:
+        if sucursal_id not in sucursales_ids:
+            raise HTTPException(status_code=403, detail="Sin acceso a esta sucursal")
+        filtro_sucursales = [sucursal_id]
+    else:
+        filtro_sucursales = sucursales_ids
 
     query_usuarios = db.query(Usuario).filter(Usuario.activo == True)
     query_marcajes = db.query(Marcaje).filter(sqlfunc.date(Marcaje.fecha_hora) == hoy)
@@ -279,12 +328,29 @@ async def dashboard(
         Marcaje.minutos_tardanza > 0,
     )
 
-    if not admin.get("es_superadmin"):
-        query_usuarios = query_usuarios.filter(Usuario.sucursal_id.in_(sucursales_ids))
-        query_marcajes = query_marcajes.filter(Marcaje.sucursal_id.in_(sucursales_ids))
-        query_justif = query_justif.filter(Marcaje.sucursal_id.in_(sucursales_ids))
-        query_entradas = query_entradas.filter(Marcaje.sucursal_id.in_(sucursales_ids))
-        query_tardanzas = query_tardanzas.filter(Marcaje.sucursal_id.in_(sucursales_ids))
+    if filtro_sucursales:
+        query_usuarios = query_usuarios.filter(Usuario.sucursal_id.in_(filtro_sucursales))
+        query_marcajes = query_marcajes.filter(Marcaje.sucursal_id.in_(filtro_sucursales))
+        query_justif = query_justif.filter(Marcaje.sucursal_id.in_(filtro_sucursales))
+        query_entradas = query_entradas.filter(Marcaje.sucursal_id.in_(filtro_sucursales))
+        query_tardanzas = query_tardanzas.filter(Marcaje.sucursal_id.in_(filtro_sucursales))
+    elif not admin.get("es_superadmin"):
+        # Admin sin sucursales asignadas
+        return templates.TemplateResponse(
+            request,
+            "admin_dashboard.html",
+            {
+                "admin": admin,
+                "total_usuarios": 0,
+                "marcajes_hoy": 0,
+                "entradas_hoy": 0,
+                "justif_pendientes": 0,
+                "tardanzas_hoy": 0,
+                "hoy": hoy.strftime("%d/%m/%Y"),
+                "sucursales": [],
+                "sucursal_sel": None,
+            },
+        )
 
     total_usuarios = query_usuarios.count()
     marcajes_hoy = query_marcajes.count()
@@ -303,6 +369,8 @@ async def dashboard(
             "justif_pendientes": justif_pendientes,
             "tardanzas_hoy": tardanzas_hoy,
             "hoy": hoy.strftime("%d/%m/%Y"),
+            "sucursales": sucursales_disponibles,
+            "sucursal_sel": sucursal_id,
         },
     )
 
@@ -350,11 +418,40 @@ async def crear_sucursal(
     _log(
         db,
         admin,
-        TipoAccion.CREAR_SUCURSAL if hasattr(TipoAccion, "CREAR_SUCURSAL") else TipoAccion.CREAR_USUARIO,
+        TipoAccion.CREAR_SUCURSAL,
         {"sucursal_id": s.id, "codigo": codigo_clean, "nombre": s.nombre},
         _ip(request),
     )
     return {"ok": True, "id": s.id}
+
+
+@router.put("/admin/sucursales/{sucursal_id}/editar")
+async def editar_sucursal(
+    sucursal_id: int,
+    request: Request,
+    nombre: str = Form(...),
+    direccion: str = Form(None),
+    zona_horaria: str = Form("America/El_Salvador"),
+    admin=Depends(requiere_superadmin),
+    db: Session = Depends(get_db),
+):
+    s = db.query(Sucursal).filter(Sucursal.id == sucursal_id).first()
+    if not s:
+        raise HTTPException(404, "Sucursal no encontrada")
+
+    s.nombre = nombre.strip()
+    s.direccion = direccion.strip() if direccion else None
+    s.zona_horaria = zona_horaria.strip()
+    db.commit()
+
+    _log(
+        db,
+        admin,
+        TipoAccion.EDITAR_SUCURSAL,
+        {"sucursal_id": sucursal_id, "nombre": s.nombre},
+        _ip(request),
+    )
+    return {"ok": True}
 
 
 @router.put("/admin/sucursales/{sucursal_id}/estado")
@@ -372,10 +469,7 @@ async def cambiar_estado_sucursal(
     s.activa = activa
     db.commit()
 
-    accion = (
-        TipoAccion.ACTIVAR_SUCURSAL if activa else TipoAccion.DESACTIVAR_SUCURSAL
-    ) if hasattr(TipoAccion, "ACTIVAR_SUCURSAL") else TipoAccion.DESACTIVAR_USUARIO
-
+    accion = TipoAccion.ACTIVAR_SUCURSAL if activa else TipoAccion.DESACTIVAR_SUCURSAL
     _log(db, admin, accion, {"sucursal_id": sucursal_id, "nombre": s.nombre}, _ip(request))
 
     return {"ok": True}
@@ -388,20 +482,34 @@ async def cambiar_estado_sucursal(
 @router.get("/admin/usuarios", response_class=HTMLResponse)
 async def lista_usuarios(
     request: Request,
+    sucursal_id: int = None,
     db: Session = Depends(get_db),
     admin=Depends(obtener_admin_actual),
 ):
+    sucursales_disponibles = _obtener_lista_sucursales_admin(admin, db)
+    sucursales_ids = [s.id for s in sucursales_disponibles]
+
     query = db.query(Usuario)
-    if not admin.get("es_superadmin"):
-        query = query.filter(Usuario.sucursal_id.in_(admin.get("sucursales_ids", [])))
+    if sucursal_id:
+        if sucursal_id not in sucursales_ids:
+            raise HTTPException(status_code=403, detail="Sin acceso a esta sucursal")
+        query = query.filter(Usuario.sucursal_id == sucursal_id)
+    elif sucursales_ids:
+        query = query.filter(Usuario.sucursal_id.in_(sucursales_ids))
+    elif not admin.get("es_superadmin"):
+        query = query.filter(False)
 
     usuarios = query.order_by(Usuario.nombre).all()
-    sucursales = db.query(Sucursal).filter(Sucursal.activa == True).all()
 
     return templates.TemplateResponse(
         request,
         "admin_usuarios.html",
-        {"admin": admin, "usuarios": usuarios, "sucursales": sucursales},
+        {
+            "admin": admin,
+            "usuarios": usuarios,
+            "sucursales": sucursales_disponibles,
+            "sucursal_sel": sucursal_id,
+        },
     )
 
 
@@ -468,12 +576,7 @@ async def actualizar_horario(
     db: Session = Depends(get_db),
     admin=Depends(obtener_admin_actual),
 ):
-    u = db.query(Usuario).filter(Usuario.id == uid).first()
-    if not u:
-        raise HTTPException(404, "Usuario no encontrado")
-
-    if not admin.get("es_superadmin") and u.sucursal_id not in admin.get("sucursales_ids", []):
-        raise HTTPException(403, "No tiene permisos para modificar este usuario")
+    u = exigir_acceso_usuario(db, admin, uid)
 
     u.turno_entrada = datetime.strptime(turno_entrada, "%H:%M").time() if turno_entrada else None
     u.turno_salida = datetime.strptime(turno_salida, "%H:%M").time() if turno_salida else None
@@ -503,13 +606,7 @@ async def desactivar_usuario(
     db: Session = Depends(get_db),
     admin=Depends(obtener_admin_actual),
 ):
-    u = db.query(Usuario).filter(Usuario.id == uid).first()
-    if not u:
-        raise HTTPException(404, "Usuario no encontrado")
-
-    if not admin.get("es_superadmin") and u.sucursal_id not in admin.get("sucursales_ids", []):
-        raise HTTPException(403, "No tiene permisos para desactivar este usuario")
-
+    u = exigir_acceso_usuario(db, admin, uid)
     u.activo = False
     db.commit()
 
@@ -581,8 +678,34 @@ async def admins_crear(
     _log(
         db,
         admin,
-        TipoAccion.CREAR_ADMINISTRADOR if hasattr(TipoAccion, "CREAR_ADMINISTRADOR") else TipoAccion.CREAR_USUARIO,
+        TipoAccion.CREAR_ADMINISTRADOR,
         {"email": email_clean, "es_superadmin": es_super_bool, "sucursales_assigned": sucursales_ids},
+        _ip(request),
+    )
+    return {"ok": True}
+
+
+@router.put("/admin/admins/{admin_id}/sucursales")
+async def admins_reasignar_sucursales(
+    admin_id: int,
+    request: Request,
+    sucursales_ids: list[int] = Form([]),
+    admin=Depends(requiere_superadmin),
+    db: Session = Depends(get_db),
+):
+    target_admin = db.query(Administrador).filter(Administrador.id == admin_id).first()
+    if not target_admin:
+        raise HTTPException(404, "Administrador no encontrado")
+
+    sucursales_objs = db.query(Sucursal).filter(Sucursal.id.in_(sucursales_ids)).all()
+    target_admin.sucursales = sucursales_objs
+    db.commit()
+
+    _log(
+        db,
+        admin,
+        TipoAccion.ASIGNAR_SUCURSALES_ADMIN,
+        {"target_admin_id": admin_id, "sucursales_assigned": sucursales_ids},
         _ip(request),
     )
     return {"ok": True}
@@ -610,7 +733,7 @@ async def admins_password(
     _log(
         db,
         admin,
-        TipoAccion.CAMBIAR_PASSWORD_ADMIN if hasattr(TipoAccion, "CAMBIAR_PASSWORD_ADMIN") else TipoAccion.ACTUALIZAR_HORARIO,
+        TipoAccion.CAMBIAR_PASSWORD_ADMIN,
         {"target_admin_id": admin_id, "email": target_admin.email},
         _ip(request),
     )
@@ -639,7 +762,7 @@ async def admins_eliminar(
     _log(
         db,
         admin,
-        TipoAccion.ELIMINAR_ADMIN if hasattr(TipoAccion, "ELIMINAR_ADMIN") else TipoAccion.DESACTIVAR_USUARIO,
+        TipoAccion.ELIMINAR_ADMIN,
         {"deleted_admin_id": admin_id, "email": email_borrado},
         _ip(request),
     )
@@ -743,9 +866,13 @@ def agrupar_por_dia(marcajes: list) -> dict:
 @router.get("/admin/justificaciones", response_class=HTMLResponse)
 async def justificaciones(
     request: Request,
+    sucursal_id: int = None,
     db: Session = Depends(get_db),
     admin=Depends(obtener_admin_actual),
 ):
+    sucursales_disponibles = _obtener_lista_sucursales_admin(admin, db)
+    sucursales_ids = [s.id for s in sucursales_disponibles]
+
     query = (
         db.query(Marcaje, Usuario)
         .join(Usuario, Marcaje.usuario_id == Usuario.id)
@@ -755,15 +882,26 @@ async def justificaciones(
         )
     )
 
-    if not admin.get("es_superadmin"):
-        query = query.filter(Marcaje.sucursal_id.in_(admin.get("sucursales_ids", [])))
+    if sucursal_id:
+        if sucursal_id not in sucursales_ids:
+            raise HTTPException(status_code=403, detail="Sin acceso a esta sucursal")
+        query = query.filter(Marcaje.sucursal_id == sucursal_id)
+    elif sucursales_ids:
+        query = query.filter(Marcaje.sucursal_id.in_(sucursales_ids))
+    elif not admin.get("es_superadmin"):
+        query = query.filter(False)
 
     pendientes = query.order_by(Marcaje.fecha_hora.desc()).all()
 
     return templates.TemplateResponse(
         request,
         "admin_justificaciones.html",
-        {"admin": admin, "pendientes": pendientes},
+        {
+            "admin": admin,
+            "pendientes": pendientes,
+            "sucursales": sucursales_disponibles,
+            "sucursal_sel": sucursal_id,
+        },
     )
 
 
@@ -776,12 +914,7 @@ async def resolver_justificacion(
     db: Session = Depends(get_db),
     admin=Depends(obtener_admin_actual),
 ):
-    m = db.query(Marcaje).filter(Marcaje.id == marcaje_id).first()
-    if not m:
-        raise HTTPException(404, "Marcaje no encontrado")
-
-    if not admin.get("es_superadmin") and m.sucursal_id not in admin.get("sucursales_ids", []):
-        raise HTTPException(403, "No tiene permisos para resolver esta justificación")
+    m = exigir_acceso_marcaje(db, admin, marcaje_id)
 
     m.estado_justificacion = EstadoJustificacion(estado)
     m.comentario_admin = comentario
@@ -809,25 +942,40 @@ async def resolver_justificacion(
 @router.get("/admin/reportes", response_class=HTMLResponse)
 async def reportes(
     request: Request,
+    sucursal_id: int = None,
     db: Session = Depends(get_db),
     admin=Depends(obtener_admin_actual),
 ):
+    sucursales_disponibles = _obtener_lista_sucursales_admin(admin, db)
+    sucursales_ids = [s.id for s in sucursales_disponibles]
+
     query = db.query(Usuario).filter(Usuario.activo == True)
-    if not admin.get("es_superadmin"):
-        query = query.filter(Usuario.sucursal_id.in_(admin.get("sucursales_ids", [])))
+    if sucursal_id:
+        if sucursal_id not in sucursales_ids:
+            raise HTTPException(status_code=403, detail="Sin acceso a esta sucursal")
+        query = query.filter(Usuario.sucursal_id == sucursal_id)
+    elif sucursales_ids:
+        query = query.filter(Usuario.sucursal_id.in_(sucursales_ids))
+    elif not admin.get("es_superadmin"):
+        query = query.filter(False)
 
     usuarios = query.order_by(Usuario.nombre).all()
     return templates.TemplateResponse(
-        request, "admin_reportes.html", {"admin": admin, "usuarios": usuarios}
+        request,
+        "admin_reportes.html",
+        {
+            "admin": admin,
+            "usuarios": usuarios,
+            "sucursales": sucursales_disponibles,
+            "sucursal_sel": sucursal_id,
+        },
     )
 
 
 def _datos_reporte(
-    usuario_id: int, fecha_inicio: date, fecha_fin: date, db: Session
+    usuario_id: int, fecha_inicio: date, fecha_fin: date, db: Session, admin: dict
 ):
-    usuario = db.query(Usuario).filter(Usuario.id == usuario_id).first()
-    if not usuario:
-        raise HTTPException(404, "Usuario no encontrado")
+    usuario = exigir_acceso_usuario(db, admin, usuario_id)
 
     marcajes = (
         db.query(Marcaje)
@@ -906,7 +1054,7 @@ async def reporte_datos(
     fi = datetime.strptime(fecha_inicio, "%Y-%m-%d").date()
     ff = datetime.strptime(fecha_fin, "%Y-%m-%d").date()
     usuario, filas, total_h, total_e, total_tardanza = _datos_reporte(
-        usuario_id, fi, ff, db
+        usuario_id, fi, ff, db, admin
     )
 
     _log(
@@ -925,6 +1073,7 @@ async def reporte_datos(
     return {
         "usuario": f"{usuario.nombre} {usuario.apellido}",
         "cargo": usuario.cargo,
+        "sucursal": usuario.sucursal.nombre if usuario.sucursal else "Casa Matriz",
         "filas": filas,
         "total_horas_trabajadas": total_h,
         "total_horas_extras": total_e,
@@ -947,8 +1096,10 @@ async def exportar_pdf(
     fi = datetime.strptime(fecha_inicio, "%Y-%m-%d").date()
     ff = datetime.strptime(fecha_fin, "%Y-%m-%d").date()
     usuario, filas, total_h, total_e, total_tardanza = _datos_reporte(
-        usuario_id, fi, ff, db
+        usuario_id, fi, ff, db, admin
     )
+
+    sucursal_nombre = usuario.sucursal.nombre if usuario.sucursal else "Casa Matriz"
 
     buf = io.BytesIO()
     doc = SimpleDocTemplate(
@@ -967,6 +1118,7 @@ async def exportar_pdf(
     elems.append(
         Paragraph(
             f"<b>Empleado:</b> {usuario.nombre} {usuario.apellido} &nbsp;&nbsp; "
+            f"<b>Sucursal:</b> {sucursal_nombre} &nbsp;&nbsp; "
             f"<b>Cargo:</b> {usuario.cargo} &nbsp;&nbsp; "
             f"<b>Período:</b> {fi.strftime('%d/%m/%Y')} – {ff.strftime('%d/%m/%Y')}",
             styles["Normal"],
@@ -1072,8 +1224,10 @@ async def exportar_excel(
     fi = datetime.strptime(fecha_inicio, "%Y-%m-%d").date()
     ff = datetime.strptime(fecha_fin, "%Y-%m-%d").date()
     usuario, filas, total_h, total_e, total_tardanza = _datos_reporte(
-        usuario_id, fi, ff, db
+        usuario_id, fi, ff, db, admin
     )
+
+    sucursal_nombre = usuario.sucursal.nombre if usuario.sucursal else "Casa Matriz"
 
     wb = openpyxl.Workbook()
     ws = wb.active
@@ -1086,7 +1240,7 @@ async def exportar_excel(
     centro = Alignment(horizontal="center")
 
     ws.merge_cells("A1:H1")
-    ws["A1"] = f"BIOCORE — Reporte: {usuario.nombre} {usuario.apellido} ({fi} / {ff})"
+    ws["A1"] = f"BIOCORE — Reporte: {usuario.nombre} {usuario.apellido} | Sede: {sucursal_nombre} ({fi} / {ff})"
     ws["A1"].font = Font(bold=True, size=13)
 
     cabecera = [
@@ -1168,11 +1322,14 @@ async def exportar_csv(
     fi = datetime.strptime(fecha_inicio, "%Y-%m-%d").date()
     ff = datetime.strptime(fecha_fin, "%Y-%m-%d").date()
     usuario, filas, total_h, total_e, total_tardanza = _datos_reporte(
-        usuario_id, fi, ff, db
+        usuario_id, fi, ff, db, admin
     )
+
+    sucursal_nombre = usuario.sucursal.nombre if usuario.sucursal else "Casa Matriz"
 
     buf = io.StringIO()
     w = csv.writer(buf)
+    w.writerow([f"Empleado: {usuario.nombre} {usuario.apellido}", f"Sucursal: {sucursal_nombre}"])
     w.writerow([
         "Fecha",
         "Entrada",
