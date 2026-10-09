@@ -53,8 +53,8 @@
 </head>
 <body>
 
-  <aside class="sidebar">
-    <h2>BIOCORE</h2>
+  <div class="sidebar">
+    <div class="logo">⬡ BIOCORE</div>
     <nav>
         <a href="/admin/dashboard" class="activo">📊 Dashboard</a>
         <a href="/admin/usuarios">👥 Empleados</a>
@@ -66,7 +66,12 @@
             <a href="/admin/auditoria">🛡️ Auditoría</a>
         {% endif %}
     </nav>
-  </aside>
+    <div class="admin-info">
+        <strong>{{ admin.nombre }}</strong>
+        {{ "Superadmin" if admin.es_superadmin else "Administrador" }}
+    </div>
+    <a href="/admin/logout" class="logout">⎋ Cerrar sesión</a>
+</div>
 
   <main class="main-content">
     <div class="header">
