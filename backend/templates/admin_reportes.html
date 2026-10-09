@@ -73,13 +73,14 @@
 <div class="sidebar">
     <div class="logo">⬡ BIOCORE</div>
     <nav>
-        <a href="/admin/dashboard">📊 Dashboard</a>
+        <a href="/admin/dashboard" class="activo">📊 Dashboard</a>
         <a href="/admin/usuarios">👥 Empleados</a>
-        <a href="/admin/reportes" class="activo">📋 Reportes</a>
+        <a href="/admin/reportes">📋 Reportes</a>
         <a href="/admin/justificaciones">📝 Justificaciones</a>
         {% if admin.es_superadmin %}
-        <a href="/admin/admins">🔐 Administradores</a>
-           <a href="/admin/auditoria">🛡️ Auditoría</a>
+            <a href="/admin/sucursales">🏢 Sucursales</a>
+            <a href="/admin/admins">🔐 Administradores</a>
+            <a href="/admin/auditoria">🛡️ Auditoría</a>
         {% endif %}
     </nav>
     <div class="admin-info">
