@@ -55,18 +55,17 @@
 
   <aside class="sidebar">
     <h2>BIOCORE</h2>
-    <ul class="nav-links">
-      <li><a href="/admin/dashboard">📊 Dashboard</a></li>
-      <li><a href="/admin/usuarios">👥 Empleados</a></li>
-      <li><a href="/admin/reportes">📄 Reportes</a></li>
-      <li><a href="/admin/justificaciones">📝 Justificaciones</a></li>
-      {% if admin.es_superadmin %}
-        <li><a href="/admin/sucursales" class="activo">🏢 Sucursales</a></li>
-        <li><a href="/admin/admins">🛡️ Administradores</a></li>
-        <li><a href="/admin/auditoria">👁️ Auditoría</a></li>
-      {% endif %}
-      <li style="margin-top: auto;"><a href="/admin/logout" style="color: #ef4444;">🚪 Cerrar Sesión</a></li>
-    </ul>
+    <nav>
+        <a href="/admin/dashboard" class="activo">📊 Dashboard</a>
+        <a href="/admin/usuarios">👥 Empleados</a>
+        <a href="/admin/reportes">📋 Reportes</a>
+        <a href="/admin/justificaciones">📝 Justificaciones</a>
+        {% if admin.es_superadmin %}
+            <a href="/admin/sucursales">🏢 Sucursales</a>
+            <a href="/admin/admins">🔐 Administradores</a>
+            <a href="/admin/auditoria">🛡️ Auditoría</a>
+        {% endif %}
+    </nav>
   </aside>
 
   <main class="main-content">
