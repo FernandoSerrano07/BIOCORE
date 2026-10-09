@@ -1,6 +1,7 @@
 import csv
 from datetime import date, datetime, timedelta
 import io
+import json
 import os
 import time
 from collections import defaultdict
@@ -12,6 +13,7 @@ from database.models import (
     EstadoJustificacion,
     LogAuditoria,
     Marcaje,
+    Sucursal,
     TipoAccion,
     TipoMarcaje,
     Usuario,
@@ -97,8 +99,8 @@ def crear_token(data: dict, minutos: int = ACCESS_TOKEN_MINUTES) -> str:
 
 def obtener_admin_actual(request: Request, db: Session = Depends(get_db)) -> dict:
     """
-    Lee el JWT de la cookie, lo valida y retorna el dict del admin.
-    Lanza 401 si no está autenticado o el token expiró.
+    Lee el JWT de la cookie, lo valida y retorna el dict del admin
+    con las sucursales asignadas.
     """
     token = request.cookies.get("biocore_token")
     if not token:
@@ -111,17 +113,27 @@ def obtener_admin_actual(request: Request, db: Session = Depends(get_db)) -> dic
         raise HTTPException(status_code=401, detail=f"Sesión inválida o expirada: {e}")
 
     if es_super:
-        return {"id": 0, "nombre": "Soporte BioCore", "email": email, "es_superadmin": True}
+        sucursales_ids = [s.id for s in db.query(Sucursal).all()]
+        return {
+            "id": 0,
+            "nombre": "Soporte BioCore",
+            "email": email,
+            "es_superadmin": True,
+            "sucursales_ids": sucursales_ids,
+        }
 
     admin = db.query(Administrador).filter(Administrador.email == email).first()
     if not admin:
         raise HTTPException(status_code=401, detail="Administrador no encontrado")
+
+    sucursales_ids = [s.id for s in admin.sucursales] if hasattr(admin, "sucursales") else []
 
     return {
         "id": admin.id,
         "nombre": admin.nombre,
         "email": admin.email,
         "es_superadmin": getattr(admin, "es_superadmin", False),
+        "sucursales_ids": sucursales_ids,
     }
 
 
@@ -133,7 +145,7 @@ def requiere_superadmin(admin=Depends(obtener_admin_actual)) -> dict:
 
 
 # ══════════════════════════════════════════
-# HELPER AUDITORÍA
+# HELPER AUDITORÍA (CORREGIDO PARA EVITAR ERROR 500)
 # ══════════════════════════════════════════
 
 def _log(
@@ -143,12 +155,13 @@ def _log(
     detalle: dict = None,
     ip: str = None,
 ):
-    """Registra una acción de admin en la tabla logs_auditoria."""
+    """Registra una acción de admin en logs_auditoria convirtiendo 'detalle' dict a JSON string."""
+    detalle_str = json.dumps(detalle) if isinstance(detalle, dict) else detalle
     entrada = LogAuditoria(
         admin_id=admin["id"] if admin["id"] != 0 else None,
         admin_email=admin["email"],
         accion=accion,
-        detalle=detalle,
+        detalle=detalle_str,
         ip=ip,
     )
     db.add(entrada)
@@ -250,28 +263,36 @@ async def dashboard(
     admin=Depends(obtener_admin_actual),
 ):
     hoy = date.today()
-    total_usuarios = db.query(Usuario).filter(Usuario.activo == True).count()
-    marcajes_hoy = db.query(Marcaje).filter(sqlfunc.date(Marcaje.fecha_hora) == hoy).count()
-    justif_pendientes = db.query(Marcaje).filter(
+    sucursales_ids = admin.get("sucursales_ids", [])
+
+    query_usuarios = db.query(Usuario).filter(Usuario.activo == True)
+    query_marcajes = db.query(Marcaje).filter(sqlfunc.date(Marcaje.fecha_hora) == hoy)
+    query_justif = db.query(Marcaje).filter(
         Marcaje.estado_justificacion == EstadoJustificacion.PENDIENTE,
         Marcaje.es_especial == True,
-    ).count()
-    entradas_hoy = db.query(Marcaje).filter(
+    )
+    query_entradas = db.query(Marcaje).filter(
         sqlfunc.date(Marcaje.fecha_hora) == hoy,
         Marcaje.tipo == TipoMarcaje.ENTRADA,
-    ).count()
-
-    # Total tardanzas hoy
-    tardanzas_hoy = (
-        db.query(sqlfunc.count(Marcaje.id))
-        .filter(
-            sqlfunc.date(Marcaje.fecha_hora) == hoy,
-            Marcaje.tipo == TipoMarcaje.ENTRADA,
-            Marcaje.minutos_tardanza > 0,
-        )
-        .scalar()
-        or 0
     )
+    query_tardanzas = db.query(sqlfunc.count(Marcaje.id)).filter(
+        sqlfunc.date(Marcaje.fecha_hora) == hoy,
+        Marcaje.tipo == TipoMarcaje.ENTRADA,
+        Marcaje.minutos_tardanza > 0,
+    )
+
+    if not admin.get("es_superadmin"):
+        query_usuarios = query_usuarios.filter(Usuario.sucursal_id.in_(sucursales_ids))
+        query_marcajes = query_marcajes.filter(Marcaje.sucursal_id.in_(sucursales_ids))
+        query_justif = query_justif.filter(Marcaje.sucursal_id.in_(sucursales_ids))
+        query_entradas = query_entradas.filter(Marcaje.sucursal_id.in_(sucursales_ids))
+        query_tardanzas = query_tardanzas.filter(Marcaje.sucursal_id.in_(sucursales_ids))
+
+    total_usuarios = query_usuarios.count()
+    marcajes_hoy = query_marcajes.count()
+    justif_pendientes = query_justif.count()
+    entradas_hoy = query_entradas.count()
+    tardanzas_hoy = query_tardanzas.scalar() or 0
 
     return templates.TemplateResponse(
         request,
@@ -289,6 +310,80 @@ async def dashboard(
 
 
 # ══════════════════════════════════════════
+# GESTIÓN DE SUCURSALES (FASE 2)
+# ══════════════════════════════════════════
+
+@router.get("/admin/sucursales", response_class=HTMLResponse)
+async def sucursales_page(
+    request: Request,
+    admin=Depends(requiere_superadmin),
+    db: Session = Depends(get_db),
+):
+    sucursales = db.query(Sucursal).order_by(Sucursal.id).all()
+    return templates.TemplateResponse(
+        request, "admin_sucursales.html", {"admin": admin, "sucursales": sucursales}
+    )
+
+
+@router.post("/admin/sucursales/crear")
+async def crear_sucursal(
+    request: Request,
+    nombre: str = Form(...),
+    codigo: str = Form(...),
+    direccion: str = Form(None),
+    zona_horaria: str = Form("America/El_Salvador"),
+    admin=Depends(requiere_superadmin),
+    db: Session = Depends(get_db),
+):
+    codigo_clean = codigo.strip().upper()
+    existe = db.query(Sucursal).filter(Sucursal.codigo == codigo_clean).first()
+    if existe:
+        raise HTTPException(400, "El código de sucursal ya existe")
+
+    s = Sucursal(
+        nombre=nombre.strip(),
+        codigo=codigo_clean,
+        direccion=direccion.strip() if direccion else None,
+        zona_horaria=zona_horaria.strip(),
+    )
+    db.add(s)
+    db.commit()
+
+    _log(
+        db,
+        admin,
+        TipoAccion.CREAR_SUCURSAL if hasattr(TipoAccion, "CREAR_SUCURSAL") else TipoAccion.CREAR_USUARIO,
+        {"sucursal_id": s.id, "codigo": codigo_clean, "nombre": s.nombre},
+        _ip(request),
+    )
+    return {"ok": True, "id": s.id}
+
+
+@router.put("/admin/sucursales/{sucursal_id}/estado")
+async def cambiar_estado_sucursal(
+    sucursal_id: int,
+    request: Request,
+    activa: bool = Form(...),
+    admin=Depends(requiere_superadmin),
+    db: Session = Depends(get_db),
+):
+    s = db.query(Sucursal).filter(Sucursal.id == sucursal_id).first()
+    if not s:
+        raise HTTPException(404, "Sucursal no encontrada")
+
+    s.activa = activa
+    db.commit()
+
+    accion = (
+        TipoAccion.ACTIVAR_SUCURSAL if activa else TipoAccion.DESACTIVAR_SUCURSAL
+    ) if hasattr(TipoAccion, "ACTIVAR_SUCURSAL") else TipoAccion.DESACTIVAR_USUARIO
+
+    _log(db, admin, accion, {"sucursal_id": sucursal_id, "nombre": s.nombre}, _ip(request))
+
+    return {"ok": True}
+
+
+# ══════════════════════════════════════════
 # USUARIOS (CRUD)
 # ══════════════════════════════════════════
 
@@ -298,9 +393,17 @@ async def lista_usuarios(
     db: Session = Depends(get_db),
     admin=Depends(obtener_admin_actual),
 ):
-    usuarios = db.query(Usuario).order_by(Usuario.nombre).all()
+    query = db.query(Usuario)
+    if not admin.get("es_superadmin"):
+        query = query.filter(Usuario.sucursal_id.in_(admin.get("sucursales_ids", [])))
+
+    usuarios = query.order_by(Usuario.nombre).all()
+    sucursales = db.query(Sucursal).filter(Sucursal.activa == True).all()
+
     return templates.TemplateResponse(
-        request, "admin_usuarios.html", {"admin": admin, "usuarios": usuarios}
+        request,
+        "admin_usuarios.html",
+        {"admin": admin, "usuarios": usuarios, "sucursales": sucursales},
     )
 
 
@@ -312,6 +415,7 @@ async def crear_admin_usuario(
     cargo: str = Form(...),
     departamento: str = Form(None),
     email: str = Form(...),
+    sucursal_id: int = Form(None),
     turno_entrada: str = Form(None),
     turno_salida: str = Form(None),
     minutos_almuerzo: int = Form(60),
@@ -319,16 +423,15 @@ async def crear_admin_usuario(
     db: Session = Depends(get_db),
     admin=Depends(obtener_admin_actual),
 ):
+    if sucursal_id and not admin.get("es_superadmin") and sucursal_id not in admin.get("sucursales_ids", []):
+        raise HTTPException(403, "No tiene permisos para asignar usuarios a esta sucursal")
+
     existe = db.query(Usuario).filter(Usuario.email == email).first()
     if existe:
         raise HTTPException(400, "Email ya registrado")
 
-    t_entrada = (
-        datetime.strptime(turno_entrada, "%H:%M").time() if turno_entrada else None
-    )
-    t_salida = (
-        datetime.strptime(turno_salida, "%H:%M").time() if turno_salida else None
-    )
+    t_entrada = datetime.strptime(turno_entrada, "%H:%M").time() if turno_entrada else None
+    t_salida = datetime.strptime(turno_salida, "%H:%M").time() if turno_salida else None
 
     u = Usuario(
         nombre=nombre,
@@ -336,6 +439,7 @@ async def crear_admin_usuario(
         cargo=cargo,
         departamento=departamento,
         email=email,
+        sucursal_id=sucursal_id,
         turno_entrada=t_entrada,
         turno_salida=t_salida,
         minutos_almuerzo=minutos_almuerzo,
@@ -348,7 +452,7 @@ async def crear_admin_usuario(
         db,
         admin,
         TipoAccion.CREAR_USUARIO,
-        {"usuario_id": u.id, "email": email, "cargo": cargo},
+        {"usuario_id": u.id, "email": email, "cargo": cargo, "sucursal_id": sucursal_id},
         _ip(request),
     )
 
@@ -370,12 +474,11 @@ async def actualizar_horario(
     if not u:
         raise HTTPException(404, "Usuario no encontrado")
 
-    u.turno_entrada = (
-        datetime.strptime(turno_entrada, "%H:%M").time() if turno_entrada else None
-    )
-    u.turno_salida = (
-        datetime.strptime(turno_salida, "%H:%M").time() if turno_salida else None
-    )
+    if not admin.get("es_superadmin") and u.sucursal_id not in admin.get("sucursales_ids", []):
+        raise HTTPException(403, "No tiene permisos para modificar este usuario")
+
+    u.turno_entrada = datetime.strptime(turno_entrada, "%H:%M").time() if turno_entrada else None
+    u.turno_salida = datetime.strptime(turno_salida, "%H:%M").time() if turno_salida else None
     u.minutos_almuerzo = minutos_almuerzo
     u.horas_laborales_dia = horas_laborales_dia
     db.commit()
@@ -405,6 +508,10 @@ async def desactivar_usuario(
     u = db.query(Usuario).filter(Usuario.id == uid).first()
     if not u:
         raise HTTPException(404, "Usuario no encontrado")
+
+    if not admin.get("es_superadmin") and u.sucursal_id not in admin.get("sucursales_ids", []):
+        raise HTTPException(403, "No tiene permisos para desactivar este usuario")
+
     u.activo = False
     db.commit()
 
@@ -431,8 +538,9 @@ async def admins_page(
     db: Session = Depends(get_db),
 ):
     admins = db.query(Administrador).order_by(Administrador.id).all()
+    sucursales = db.query(Sucursal).filter(Sucursal.activa == True).all()
     return templates.TemplateResponse(
-        request, "admin_admins.html", {"admin": admin, "admins": admins}
+        request, "admin_admins.html", {"admin": admin, "admins": admins, "sucursales": sucursales}
     )
 
 
@@ -444,6 +552,7 @@ async def admins_crear(
     email: str = Form(...),
     password: str = Form(...),
     es_superadmin: str = Form("false"),
+    sucursales_ids: list[int] = Form([]),
     admin=Depends(requiere_superadmin),
     db: Session = Depends(get_db),
 ):
@@ -464,6 +573,10 @@ async def admins_crear(
     if hasattr(a, "es_superadmin"):
         a.es_superadmin = es_super_bool
 
+    if sucursales_ids and hasattr(a, "sucursales"):
+        sucursales_obj = db.query(Sucursal).filter(Sucursal.id.in_(sucursales_ids)).all()
+        a.sucursales = sucursales_obj
+
     db.add(a)
     db.commit()
 
@@ -471,7 +584,7 @@ async def admins_crear(
         db,
         admin,
         TipoAccion.CREAR_ADMINISTRADOR if hasattr(TipoAccion, "CREAR_ADMINISTRADOR") else TipoAccion.CREAR_USUARIO,
-        {"email": email_clean, "es_superadmin": es_super_bool},
+        {"email": email_clean, "es_superadmin": es_super_bool, "sucursales_assigned": sucursales_ids},
         _ip(request),
     )
     return {"ok": True}
@@ -635,16 +748,20 @@ async def justificaciones(
     db: Session = Depends(get_db),
     admin=Depends(obtener_admin_actual),
 ):
-    pendientes = (
+    query = (
         db.query(Marcaje, Usuario)
         .join(Usuario, Marcaje.usuario_id == Usuario.id)
         .filter(
             Marcaje.es_especial == True,
             Marcaje.estado_justificacion == EstadoJustificacion.PENDIENTE,
         )
-        .order_by(Marcaje.fecha_hora.desc())
-        .all()
     )
+
+    if not admin.get("es_superadmin"):
+        query = query.filter(Marcaje.sucursal_id.in_(admin.get("sucursales_ids", [])))
+
+    pendientes = query.order_by(Marcaje.fecha_hora.desc()).all()
+
     return templates.TemplateResponse(
         request,
         "admin_justificaciones.html",
@@ -664,6 +781,9 @@ async def resolver_justificacion(
     m = db.query(Marcaje).filter(Marcaje.id == marcaje_id).first()
     if not m:
         raise HTTPException(404, "Marcaje no encontrado")
+
+    if not admin.get("es_superadmin") and m.sucursal_id not in admin.get("sucursales_ids", []):
+        raise HTTPException(403, "No tiene permisos para resolver esta justificación")
 
     m.estado_justificacion = EstadoJustificacion(estado)
     m.comentario_admin = comentario
@@ -694,12 +814,11 @@ async def reportes(
     db: Session = Depends(get_db),
     admin=Depends(obtener_admin_actual),
 ):
-    usuarios = (
-        db.query(Usuario)
-        .filter(Usuario.activo == True)
-        .order_by(Usuario.nombre)
-        .all()
-    )
+    query = db.query(Usuario).filter(Usuario.activo == True)
+    if not admin.get("es_superadmin"):
+        query = query.filter(Usuario.sucursal_id.in_(admin.get("sucursales_ids", [])))
+
+    usuarios = query.order_by(Usuario.nombre).all()
     return templates.TemplateResponse(
         request, "admin_reportes.html", {"admin": admin, "usuarios": usuarios}
     )
@@ -1094,58 +1213,3 @@ async def exportar_csv(
         media_type="text/csv",
         headers={"Content-Disposition": f"attachment; filename={nombre}"},
     )
-
-
-# ══════════════════════════════════════════
-# RESUMEN SEMANA (optimizado — una sola query)
-# ══════════════════════════════════════════
-
-@router.get("/admin/resumen/semana")
-async def resumen_semana(
-    db: Session = Depends(get_db),
-    admin=Depends(obtener_admin_actual),
-):
-    hoy = date.today()
-    lunes = hoy - timedelta(days=hoy.weekday())
-
-    # Una sola query para todos los usuarios y todos los marcajes de la semana
-    usuarios = db.query(Usuario).filter(Usuario.activo == True).all()
-    usuario_map = {u.id: u for u in usuarios}
-
-    if not usuario_map:
-        return []
-
-    marcajes = (
-        db.query(Marcaje)
-        .filter(
-            Marcaje.usuario_id.in_(list(usuario_map.keys())),
-            sqlfunc.date(Marcaje.fecha_hora) >= lunes,
-            sqlfunc.date(Marcaje.fecha_hora) <= hoy,
-        )
-        .order_by(Marcaje.fecha_hora)
-        .all()
-    )
-
-    # Agrupar en memoria por usuario
-    por_usuario: dict[int, list] = defaultdict(list)
-    for m in marcajes:
-        por_usuario[m.usuario_id].append(m)
-
-    resultado = []
-    for u in usuarios:
-        dias = agrupar_por_dia(por_usuario.get(u.id, []))
-        total_h = total_e = 0.0
-        for ms in dias.values():
-            h, e = calcular_horas_dia(ms, u)
-            total_h += h
-            total_e += e
-
-        resultado.append({
-            "id": u.id,
-            "nombre": f"{u.nombre} {u.apellido}",
-            "cargo": u.cargo,
-            "horas_semana": round(total_h, 2),
-            "extras_semana": round(total_e, 2),
-        })
-
-    return resultado
