@@ -1,7 +1,6 @@
 import csv
 from datetime import date, datetime, timedelta
 import io
-import json
 import os
 import time
 from collections import defaultdict
@@ -145,7 +144,7 @@ def requiere_superadmin(admin=Depends(obtener_admin_actual)) -> dict:
 
 
 # ══════════════════════════════════════════
-# HELPER AUDITORÍA (CORREGIDO PARA EVITAR ERROR 500)
+# HELPER AUDITORÍA
 # ══════════════════════════════════════════
 
 def _log(
@@ -155,13 +154,12 @@ def _log(
     detalle: dict = None,
     ip: str = None,
 ):
-    """Registra una acción de admin en logs_auditoria convirtiendo 'detalle' dict a JSON string."""
-    detalle_str = json.dumps(detalle) if isinstance(detalle, dict) else detalle
+    """Registra una acción de admin en logs_auditoria pasando directamente el diccionario/JSON."""
     entrada = LogAuditoria(
         admin_id=admin["id"] if admin["id"] != 0 else None,
         admin_email=admin["email"],
         accion=accion,
-        detalle=detalle_str,
+        detalle=detalle,  # Pasa directamente el dict/JSON sin json.dumps()
         ip=ip,
     )
     db.add(entrada)
