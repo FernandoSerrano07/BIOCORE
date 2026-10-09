@@ -174,7 +174,7 @@
     </div>
 
     <div class="botones-marcaje" id="botones">
-        <button class="btn-marcaje btn-entrada deshabilitado"     id="btn-entrada"     onclick="iniciarMarcaje('entrada')">
+        <button class="btn-marcaje btn-entrada deshabilitado"      id="btn-entrada"     onclick="iniciarMarcaje('entrada')">
             <span class="btn-icono">🟢</span> Entrada
         </button>
         <button class="btn-marcaje btn-salida-alm deshabilitado"  id="btn-salida-alm"  onclick="iniciarMarcaje('salida_almuerzo')">
@@ -221,24 +221,18 @@
 
     <div class="mensaje-resultado" id="mensaje-resultado"></div>
 
-<div style="text-align:center; margin-top:24px;">
-    <a href="/registro" style="color:#9ca3af; font-size:13px; text-decoration:none;">
-        ¿Nuevo empleado? → Registrarse
-    </a>
-    <br>
-    <a href="/admin/login" style="color:#00b896; font-size:13px; text-decoration:none; font-weight: 600;">
-        ⚙️ Panel de Administración y Reportes →
-    </a>
+    <div style="text-align:center; margin-top:24px;">
+        <a href="/registro" style="color:#9ca3af; font-size:13px; text-decoration:none;">
+            ¿Nuevo empleado? → Registrarse
+        </a>
+        <br><br>
+        <a href="/admin/login" style="color:#00b896; font-size:13px; text-decoration:none; font-weight: 600;">
+            ⚙️ Panel de Administración y Reportes →
+        </a>
+    </div>
+
 </div>
 
-
-</div>
-<!-- Coloca este botón en tu barra superior (Navbar) o pie de página -->
-<button type="button" 
-        onclick="window.location.href='/admin/login'" 
-        class="btn btn-outline-primary">
-    Acceso Administrador
-</button>
 <script>
 let tipoMarcajeActual  = null;
 let usuarioActual      = null;
@@ -247,10 +241,10 @@ let audioBlob          = null;
 let grabando           = false;
 let stream             = null;
 let hayRostro          = false;
-let identificandoAuto  = false;   // hay una petición en vuelo
+let identificandoAuto  = false;
 let framesSinRostro    = 0;
-const FRAMES_RESET     = 15;      // ciclos sin rostro para limpiar UI
-const INTERVALO_AUTO   = 2500;    // ms entre verificaciones automáticas
+const FRAMES_RESET     = 15;
+const INTERVALO_AUTO   = 2500;
 
 // RELOJ
 function actualizarReloj() {
@@ -313,7 +307,6 @@ async function iniciarDeteccion() {
                 framesSinRostro = 0;
                 dibujarCajaFacial(ctx, detecciones[0], canvas, frame);
 
-                // Si no hay usuario identificado y no hay petición en vuelo → identificar
                 if (!usuarioActual && !identificandoAuto) {
                     identificacionAutomatica();
                 }
@@ -348,6 +341,11 @@ async function identificacionAutomatica() {
         const formData = new FormData();
         formData.append('foto', blob, 'frame.jpg');
 
+        // Capturar token de sucursal de la URL si existe
+        const urlParams = new URLSearchParams(window.location.search);
+        const token = urlParams.get('token') || urlParams.get('sucursal_id') || '';
+        if (token) formData.append('token', token);
+
         const respuesta = await fetch('/api/marcaje/verificar', { method: 'POST', body: formData });
         const datos     = await respuesta.json();
 
@@ -359,14 +357,12 @@ async function identificacionAutomatica() {
             document.getElementById('video').classList.add('identificado-pulso');
             setTimeout(() => document.getElementById('video').classList.remove('identificado-pulso'), 3000);
 
-            // Datos flotantes sobre la cámara
             document.getElementById('float-nombre').textContent = datos.nombre;
             document.getElementById('float-cargo').textContent  = datos.cargo;
             document.getElementById('float-sim').textContent    = datos.similitud + '%';
             document.getElementById('datos-flotantes').classList.add('visible');
         } else {
             setBadge('NO RECONOCIDO', 'no-reconocido');
-            // Reintentar después del intervalo
             setTimeout(() => {
                 identificandoAuto = false;
                 if (hayRostro && !usuarioActual) setBadge('ROSTRO DETECTADO', 'detectado');
@@ -450,7 +446,6 @@ function actualizarCornersYScan(rostro) {
     }
 }
 
-// MARCAJE — ya solo confirma, el usuario ya fue identificado automáticamente
 const TIPOS_ESPECIALES = ['salida_imprevista', 'salida_enfermedad'];
 
 async function iniciarMarcaje(tipo) {
@@ -484,9 +479,13 @@ async function confirmarMarcaje() {
         return;
     }
 
+    const urlParams = new URLSearchParams(window.location.search);
+    const token = urlParams.get('token') || urlParams.get('sucursal_id') || '';
+
     const formData = new FormData();
     formData.append('usuario_id', usuarioActual.usuario_id);
     formData.append('tipo', tipoMarcajeActual);
+    if (token) formData.append('token', token);
     if (justificacion) formData.append('justificacion_texto', justificacion);
 
     try {
