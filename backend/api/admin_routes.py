@@ -34,6 +34,9 @@ from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, Tabl
 from sqlalchemy import func as sqlfunc, text
 from sqlalchemy.orm import Session
 
+# Importación del motor de cálculo avanzado
+from calculo_asistencia import calcular_resumen_diario
+
 router = APIRouter()
 
 # ── Configuración de ruta absoluta para plantillas ───────────────────────
@@ -376,7 +379,7 @@ async def dashboard(
 
 
 # ══════════════════════════════════════════
-# GESTIÓN DE SUCURSALES (FASE 2)
+# GESTIÓN DE SUCURSALES
 # ══════════════════════════════════════════
 
 @router.get("/admin/sucursales", response_class=HTMLResponse)
@@ -818,48 +821,6 @@ async def ver_auditoria(
 
 
 # ══════════════════════════════════════════
-# HELPERS DE CÁLCULO
-# ══════════════════════════════════════════
-
-def calcular_horas_dia(marcajes_dia: list, usuario: Usuario):
-    por_tipo = {}
-    for m in marcajes_dia:
-        por_tipo[m.tipo] = m.fecha_hora
-
-    entrada = por_tipo.get(TipoMarcaje.ENTRADA)
-    salida_alm = por_tipo.get(TipoMarcaje.SALIDA_ALMUERZO)
-    regreso_alm = por_tipo.get(TipoMarcaje.REGRESO_ALMUERZO)
-    salida_final = (
-        por_tipo.get(TipoMarcaje.SALIDA)
-        or por_tipo.get(TipoMarcaje.SALIDA_IMPREVISTA)
-        or por_tipo.get(TipoMarcaje.SALIDA_ENFERMEDAD)
-    )
-
-    if not entrada or not salida_final:
-        return 0.0, 0.0
-
-    if salida_alm and regreso_alm:
-        minutos = (salida_alm - entrada).total_seconds() / 60
-        minutos += (salida_final - regreso_alm).total_seconds() / 60
-    else:
-        total_min = (salida_final - entrada).total_seconds() / 60
-        minutos = total_min - (usuario.minutos_almuerzo or 60)
-
-    horas_trabajadas = max(0.0, minutos / 60)
-    horas_contratadas = usuario.horas_laborales_dia or 8
-    horas_extras = max(0.0, horas_trabajadas - horas_contratadas)
-    return round(horas_trabajadas, 2), round(horas_extras, 2)
-
-
-def agrupar_por_dia(marcajes: list) -> dict:
-    dias = {}
-    for m in marcajes:
-        d = m.fecha_hora.date()
-        dias.setdefault(d, []).append(m)
-    return dias
-
-
-# ══════════════════════════════════════════
 # JUSTIFICACIONES
 # ══════════════════════════════════════════
 
@@ -976,6 +937,7 @@ def _datos_reporte(
     usuario_id: int, fecha_inicio: date, fecha_fin: date, db: Session, admin: dict
 ):
     usuario = exigir_acceso_usuario(db, admin, usuario_id)
+    tz_str = usuario.sucursal.zona_horaria if usuario.sucursal else "America/El_Salvador"
 
     marcajes = (
         db.query(Marcaje)
@@ -984,387 +946,64 @@ def _datos_reporte(
             sqlfunc.date(Marcaje.fecha_hora) >= fecha_inicio,
             sqlfunc.date(Marcaje.fecha_hora) <= fecha_fin,
         )
-        .order_by(Marcaje.fecha_hora)
+        .order_by(Marcaje.fecha_hora.asc())
         .all()
     )
 
-    dias = agrupar_por_dia(marcajes)
+    # Agrupar marcajes por día
+    dias = defaultdict(list)
+    for m in marcajes:
+        dias[m.fecha_hora.date()].append(m)
+
     filas = []
-    total_trabajadas = 0.0
+    total_normales = 0.0
     total_extras = 0.0
     total_tardanza = 0
 
     for dia in sorted(dias.keys()):
-        horas, extras = calcular_horas_dia(dias[dia], usuario)
-        total_trabajadas += horas
-        total_extras += extras
+        m_lista = dias[dia]
+        resumen = calcular_resumen_diario(usuario, m_lista, tz_str)
 
-        tipos = {m.tipo: m for m in dias[dia]}
-        entrada_m = tipos.get(TipoMarcaje.ENTRADA)
-        tardanza = entrada_m.minutos_tardanza if entrada_m else 0
-        total_tardanza += tardanza
-
-        salida_m = (
-            tipos.get(TipoMarcaje.SALIDA)
-            or tipos.get(TipoMarcaje.SALIDA_IMPREVISTA)
-            or tipos.get(TipoMarcaje.SALIDA_ENFERMEDAD)
-        )
+        total_normales += resumen["horas_normales"]
+        total_extras += resumen["horas_extra"]
+        total_tardanza += resumen["minutos_tardanza"]
 
         filas.append({
             "fecha": dia.strftime("%d/%m/%Y"),
-            "entrada": (
-                tipos[TipoMarcaje.ENTRADA].fecha_hora.strftime("%H:%M")
-                if TipoMarcaje.ENTRADA in tipos
-                else "—"
-            ),
-            "sal_alm": (
-                tipos[TipoMarcaje.SALIDA_ALMUERZO].fecha_hora.strftime("%H:%M")
-                if TipoMarcaje.SALIDA_ALMUERZO in tipos
-                else "—"
-            ),
-            "reg_alm": (
-                tipos[TipoMarcaje.REGRESO_ALMUERZO].fecha_hora.strftime("%H:%M")
-                if TipoMarcaje.REGRESO_ALMUERZO in tipos
-                else "—"
-            ),
-            "salida": salida_m.fecha_hora.strftime("%H:%M") if salida_m else "—",
-            "horas": horas,
-            "extras": extras,
-            "tardanza": tardanza,
+            "entrada": resumen["entrada_real"] or "--:--:--",
+            "salida": resumen["salida_real"] or "--:--:--",
+            "horas_normales": resumen["horas_normales"],
+            "horas_extra": resumen["horas_extra"],
+            "minutos_tardanza": resumen["minutos_tardanza"],
+            "estado": resumen["estado"]
         })
 
-    return (
-        usuario,
-        filas,
-        round(total_trabajadas, 2),
-        round(total_extras, 2),
-        total_tardanza,
-    )
-
-
-@router.get("/admin/reportes/datos")
-async def reporte_datos(
-    usuario_id: int,
-    fecha_inicio: str,
-    fecha_fin: str,
-    request: Request,
-    db: Session = Depends(get_db),
-    admin=Depends(obtener_admin_actual),
-):
-    fi = datetime.strptime(fecha_inicio, "%Y-%m-%d").date()
-    ff = datetime.strptime(fecha_fin, "%Y-%m-%d").date()
-    usuario, filas, total_h, total_e, total_tardanza = _datos_reporte(
-        usuario_id, fi, ff, db, admin
-    )
-
-    _log(
-        db,
-        admin,
-        TipoAccion.EXPORTAR_REPORTE,
-        {
-            "usuario_id": usuario_id,
-            "formato": "json",
-            "desde": fecha_inicio,
-            "hasta": fecha_fin,
-        },
-        _ip(request),
-    )
-
     return {
-        "usuario": f"{usuario.nombre} {usuario.apellido}",
-        "cargo": usuario.cargo,
-        "sucursal": usuario.sucursal.nombre if usuario.sucursal else "Casa Matriz",
+        "usuario": usuario,
         "filas": filas,
-        "total_horas_trabajadas": total_h,
-        "total_horas_extras": total_e,
-        "total_minutos_tardanza": total_tardanza,
-        "horas_contratadas_dia": usuario.horas_laborales_dia or 8,
+        "totales": {
+            "horas_normales": round(total_normales, 2),
+            "horas_extra": round(total_extras, 2),
+            "total_horas": round(total_normales + total_extras, 2),
+            "minutos_tardanza": total_tardanza,
+        },
     }
 
 
-# ── EXPORTAR PDF ───────────────────────────────────────────────────────
-
-@router.get("/admin/reportes/pdf")
-async def exportar_pdf(
+@router.get("/admin/reportes/json")
+async def reporte_json(
     usuario_id: int,
-    fecha_inicio: str,
-    fecha_fin: str,
-    request: Request,
+    fecha_inicio: date,
+    fecha_fin: date,
     db: Session = Depends(get_db),
     admin=Depends(obtener_admin_actual),
 ):
-    fi = datetime.strptime(fecha_inicio, "%Y-%m-%d").date()
-    ff = datetime.strptime(fecha_fin, "%Y-%m-%d").date()
-    usuario, filas, total_h, total_e, total_tardanza = _datos_reporte(
-        usuario_id, fi, ff, db, admin
-    )
-
-    sucursal_nombre = usuario.sucursal.nombre if usuario.sucursal else "Casa Matriz"
-
-    buf = io.BytesIO()
-    doc = SimpleDocTemplate(
-        buf,
-        pagesize=landscape(A4),
-        leftMargin=1.5 * cm,
-        rightMargin=1.5 * cm,
-        topMargin=2 * cm,
-        bottomMargin=2 * cm,
-    )
-    styles = getSampleStyleSheet()
-    elems = []
-
-    elems.append(Paragraph("BIOCORE — Reporte de Marcaciones", styles["Title"]))
-    elems.append(Spacer(1, 0.3 * cm))
-    elems.append(
-        Paragraph(
-            f"<b>Empleado:</b> {usuario.nombre} {usuario.apellido} &nbsp;&nbsp; "
-            f"<b>Sucursal:</b> {sucursal_nombre} &nbsp;&nbsp; "
-            f"<b>Cargo:</b> {usuario.cargo} &nbsp;&nbsp; "
-            f"<b>Período:</b> {fi.strftime('%d/%m/%Y')} – {ff.strftime('%d/%m/%Y')}",
-            styles["Normal"],
-        )
-    )
-    elems.append(Spacer(1, 0.5 * cm))
-
-    cabecera = [
-        "Fecha",
-        "Entrada",
-        "Sal. Almuerzo",
-        "Reg. Almuerzo",
-        "Salida",
-        "Hrs. Trabajadas",
-        "Hrs. Extras",
-        "Min. Tardanza",
-    ]
-    data = [cabecera]
-    for f in filas:
-        data.append([
-            f["fecha"],
-            f["entrada"],
-            f["sal_alm"],
-            f["reg_alm"],
-            f["salida"],
-            f"{f['horas']}h",
-            f"{f['extras']}h",
-            f"{f['tardanza']}min" if f["tardanza"] else "—",
-        ])
-    data.append([
-        "TOTAL",
-        "",
-        "",
-        "",
-        "",
-        f"{total_h}h",
-        f"{total_e}h",
-        f"{total_tardanza}min",
-    ])
-
-    t = Table(data, repeatRows=1)
-    t.setStyle(
-        TableStyle([
-            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#0f172a")),
-            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-            ("ALIGN", (0, 0), (-1, -1), "CENTER"),
-            (
-                "ROWBACKGROUNDS",
-                (0, 1),
-                (-1, -2),
-                [colors.white, colors.HexColor("#f1f5f9")],
-            ),
-            ("BACKGROUND", (0, -1), (-1, -1), colors.HexColor("#00b896")),
-            ("TEXTCOLOR", (0, -1), (-1, -1), colors.white),
-            ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"),
-            ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#e2e8f0")),
-            ("FONTSIZE", (0, 0), (-1, -1), 9),
-            ("PADDING", (0, 0), (-1, -1), 6),
-        ])
-    )
-    elems.append(t)
-    elems.append(Spacer(1, 0.5 * cm))
-    elems.append(
-        Paragraph(
-            f"<b>Total horas trabajadas:</b> {total_h}h &nbsp;&nbsp; "
-            f"<b>Total horas extras:</b> {total_e}h &nbsp;&nbsp; "
-            f"<b>Total minutos tardanza:</b> {total_tardanza}min",
-            styles["Normal"],
-        )
-    )
-
-    doc.build(elems)
-    buf.seek(0)
-
-    _log(
-        db,
-        admin,
-        TipoAccion.EXPORTAR_REPORTE,
-        {"usuario_id": usuario_id, "formato": "pdf"},
-        _ip(request),
-    )
-
-    nombre_archivo = f"reporte_{usuario.apellido}_{fi}_{ff}.pdf"
-    return StreamingResponse(
-        buf,
-        media_type="application/pdf",
-        headers={"Content-Disposition": f"attachment; filename={nombre_archivo}"},
-    )
-
-
-# ── EXPORTAR EXCEL ─────────────────────────────────────────────────────
-
-@router.get("/admin/reportes/excel")
-async def exportar_excel(
-    usuario_id: int,
-    fecha_inicio: str,
-    fecha_fin: str,
-    request: Request,
-    db: Session = Depends(get_db),
-    admin=Depends(obtener_admin_actual),
-):
-    fi = datetime.strptime(fecha_inicio, "%Y-%m-%d").date()
-    ff = datetime.strptime(fecha_fin, "%Y-%m-%d").date()
-    usuario, filas, total_h, total_e, total_tardanza = _datos_reporte(
-        usuario_id, fi, ff, db, admin
-    )
-
-    sucursal_nombre = usuario.sucursal.nombre if usuario.sucursal else "Casa Matriz"
-
-    wb = openpyxl.Workbook()
-    ws = wb.active
-    ws.title = "Marcaciones"
-
-    verde = PatternFill("solid", fgColor="00B896")
-    oscuro = PatternFill("solid", fgColor="0F172A")
-    gris = PatternFill("solid", fgColor="F1F5F9")
-    blanco = Font(bold=True, color="FFFFFF")
-    centro = Alignment(horizontal="center")
-
-    ws.merge_cells("A1:H1")
-    ws["A1"] = f"BIOCORE — Reporte: {usuario.nombre} {usuario.apellido} | Sede: {sucursal_nombre} ({fi} / {ff})"
-    ws["A1"].font = Font(bold=True, size=13)
-
-    cabecera = [
-        "Fecha",
-        "Entrada",
-        "Sal. Almuerzo",
-        "Reg. Almuerzo",
-        "Salida",
-        "Hrs. Trabajadas",
-        "Hrs. Extras",
-        "Min. Tardanza",
-    ]
-    ws.append([])
-    ws.append(cabecera)
-    fila_cab = ws.max_row
-    for col in range(1, 9):
-        c = ws.cell(fila_cab, col)
-        c.fill = oscuro
-        c.font = blanco
-        c.alignment = centro
-
-    for i, f in enumerate(filas):
-        ws.append([
-            f["fecha"],
-            f["entrada"],
-            f["sal_alm"],
-            f["reg_alm"],
-            f["salida"],
-            f["horas"],
-            f["extras"],
-            f["tardanza"] if f["tardanza"] else 0,
-        ])
-        if i % 2 == 1:
-            for col in range(1, 9):
-                ws.cell(ws.max_row, col).fill = gris
-
-    ws.append(["TOTAL", "", "", "", "", total_h, total_e, total_tardanza])
-    fila_tot = ws.max_row
-    for col in range(1, 9):
-        c = ws.cell(fila_tot, col)
-        c.fill = verde
-        c.font = blanco
-        c.alignment = centro
-
-    for col in ws.columns:
-        ws.column_dimensions[col[0].column_letter].width = 16
-
-    buf = io.BytesIO()
-    wb.save(buf)
-    buf.seek(0)
-
-    _log(
-        db,
-        admin,
-        TipoAccion.EXPORTAR_REPORTE,
-        {"usuario_id": usuario_id, "formato": "excel"},
-        _ip(request),
-    )
-
-    nombre = f"reporte_{usuario.apellido}_{fi}_{ff}.xlsx"
-    return StreamingResponse(
-        buf,
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f"attachment; filename={nombre}"},
-    )
-
-
-# ── EXPORTAR CSV ───────────────────────────────────────────────────────
-
-@router.get("/admin/reportes/csv")
-async def exportar_csv(
-    usuario_id: int,
-    fecha_inicio: str,
-    fecha_fin: str,
-    request: Request,
-    db: Session = Depends(get_db),
-    admin=Depends(obtener_admin_actual),
-):
-    fi = datetime.strptime(fecha_inicio, "%Y-%m-%d").date()
-    ff = datetime.strptime(fecha_fin, "%Y-%m-%d").date()
-    usuario, filas, total_h, total_e, total_tardanza = _datos_reporte(
-        usuario_id, fi, ff, db, admin
-    )
-
-    sucursal_nombre = usuario.sucursal.nombre if usuario.sucursal else "Casa Matriz"
-
-    buf = io.StringIO()
-    w = csv.writer(buf)
-    w.writerow([f"Empleado: {usuario.nombre} {usuario.apellido}", f"Sucursal: {sucursal_nombre}"])
-    w.writerow([
-        "Fecha",
-        "Entrada",
-        "Sal. Almuerzo",
-        "Reg. Almuerzo",
-        "Salida",
-        "Hrs. Trabajadas",
-        "Hrs. Extras",
-        "Min. Tardanza",
-    ])
-    for f in filas:
-        w.writerow([
-            f["fecha"],
-            f["entrada"],
-            f["sal_alm"],
-            f["reg_alm"],
-            f["salida"],
-            f["horas"],
-            f["extras"],
-            f["tardanza"],
-        ])
-    w.writerow(["TOTAL", "", "", "", "", total_h, total_e, total_tardanza])
-
-    buf.seek(0)
-    _log(
-        db,
-        admin,
-        TipoAccion.EXPORTAR_REPORTE,
-        {"usuario_id": usuario_id, "formato": "csv"},
-        _ip(request),
-    )
-
-    nombre = f"reporte_{usuario.apellido}_{fi}_{ff}.csv"
-    return StreamingResponse(
-        iter([buf.getvalue()]),
-        media_type="text/csv",
-        headers={"Content-Disposition": f"attachment; filename={nombre}"},
-    )
+    datos = _datos_reporte(usuario_id, fecha_inicio, fecha_fin, db, admin)
+    return {
+        "usuario": f"{datos['usuario'].nombre} {datos['usuario'].apellido}",
+        "cargo": datos['usuario'].cargo,
+        "sucursal": datos['usuario'].sucursal.nombre if datos['usuario'].sucursal else "Sin sucursal",
+        "rango": f"{fecha_inicio.strftime('%d/%m/%Y')} - {fecha_fin.strftime('%d/%m/%Y')}",
+        "detalles": datos["filas"],
+        "totales": datos["totales"],
+    }
