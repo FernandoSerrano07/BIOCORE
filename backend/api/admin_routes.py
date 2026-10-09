@@ -443,7 +443,19 @@ async def crear_admin(
 # LOGS DE AUDITORÍA (solo superadmin)
 # ══════════════════════════════════════════
 
-@router.get("/admin/auditoria")
+@router.get("/admin/auditoria", response_class=HTMLResponse)
+async def auditoria_page(
+    request: Request,
+    admin=Depends(obtener_admin_actual),
+):
+    if not admin["es_superadmin"]:
+        raise HTTPException(403, "Acceso restringido al superadmin")
+    return templates.TemplateResponse(
+        request, "admin_auditoria.html", {"admin": admin}
+    )
+
+
+@router.get("/admin/auditoria/data")
 async def ver_auditoria(
     pagina: int = 1,
     por_pagina: int = 50,
