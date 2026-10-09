@@ -4,6 +4,7 @@ import io
 import os
 import time
 from collections import defaultdict
+from pathlib import Path
 
 from database.connection import get_db
 from database.models import (
@@ -31,7 +32,10 @@ from sqlalchemy import func as sqlfunc
 from sqlalchemy.orm import Session
 
 router = APIRouter()
-templates = Jinja2Templates(directory="templates")
+
+# ── Configuración de ruta absoluta para plantillas ───────────────────────
+BASE_DIR = Path(__file__).resolve().parent.parent  # Apunta a /code/backend
+templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 
 # ══════════════════════════════════════════
 # CONFIGURACIÓN AUTH
@@ -112,7 +116,7 @@ def obtener_admin_actual(request: Request, db: Session = Depends(get_db)) -> dic
     admin = db.query(Administrador).filter(Administrador.email == email).first()
     if not admin:
         raise HTTPException(status_code=401, detail="Administrador no encontrado")
-    
+
     return {
         "id": admin.id,
         "nombre": admin.nombre,
