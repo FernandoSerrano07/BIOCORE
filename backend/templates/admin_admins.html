@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BIOCORE — Administradores</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { background: #f1f5f9; font-family: 'Segoe UI', sans-serif; display: flex; min-height: 100vh; }
+
+        .sidebar {
+            width: 240px; background: #0f172a; color: white;
+            display: flex; flex-direction: column; padding: 24px 0;
+            position: fixed; top: 0; left: 0; bottom: 0;
+        }
+        .sidebar .logo { font-size: 22px; font-weight: 900; color: #00b896;
+                          padding: 0 24px 24px; border-bottom: 1px solid #1e293b; }
+        .sidebar nav { flex: 1; padding: 16px 0; }
+        .sidebar nav a {
+            display: flex; align-items: center; gap: 12px;
+            padding: 12px 24px; color: #94a3b8; text-decoration: none;
+            font-size: 14px; font-weight: 500; transition: all 0.2s;
+        }
+        .sidebar nav a:hover, .sidebar nav a.activo {
+            background: #1e293b; color: #00b896;
+            border-right: 3px solid #00b896;
+        }
+        .sidebar .admin-info {
+            padding: 16px 24px; border-top: 1px solid #1e293b;
+            font-size: 12px; color: #64748b;
+        }
+        .sidebar .admin-info strong { display: block; color: #cbd5e1; font-size: 13px; }
+        .sidebar .logout { display: block; padding: 10px 24px; color: #ef4444;
+                            text-decoration: none; font-size: 13px; }
+
+        .main { margin-left: 240px; flex: 1; padding: 32px; min-width: 0; }
+        .topbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 28px; }
+        .topbar h1 { font-size: 24px; color: #0f172a; font-weight: 800; }
+
+        .seccion { background: white; border-radius: 16px; padding: 24px;
+                   box-shadow: 0 1px 4px rgba(0,0,0,0.07); }
+        .seccion-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+        .seccion-header h2 { font-size: 16px; font-weight: 700; color: #0f172a; }
+
+        .tabla-scroll { overflow-x: auto; }
+        table { width: 100%; border-collapse: collapse; font-size: 14px; }
+        th { text-align: left; padding: 10px 12px; background: #f8fafc;
+             color: #64748b; font-weight: 600; font-size: 12px; text-transform: uppercase; white-space: nowrap; }
+        td { padding: 12px; border-top: 1px solid #f1f5f9; color: #1e293b; vertical-align: middle; }
+        tr:hover td { background: #f8fafc; }
+        td.nowrap { white-space: nowrap; }
+
+        .badge-activo { background: #dcfce7; color: #166534; padding: 3px 10px;
+                        border-radius: 20px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+        .badge-gris { background: #f1f5f9; color: #475569; padding: 3px 10px;
+                      border-radius: 20px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+        .badge-tu { background: #eff6ff; color: #1d4ed8; padding: 2px 8px; margin-left: 6px;
+                    border-radius: 20px; font-size: 11px; font-weight: 600; }
+
+        .btn { padding: 8px 16px; border-radius: 8px; border: none; cursor: pointer;
+               font-size: 13px; font-weight: 600; transition: all 0.2s; }
+        .btn-verde { background: #00b896; color: white; }
+        .btn-verde:hover { background: #009d80; }
+        .btn-rojo { background: #fee2e2; color: #991b1b; }
+        .btn-rojo:hover { background: #fecaca; }
+        .btn-gris { background: #f1f5f9; color: #475569; }
+        .btn-gris:hover { background: #e2e8f0; }
+        .btn-azul { background: #eff6ff; color: #1d4ed8; }
+        .btn-azul:hover { background: #dbeafe; }
+        .btn-sm { padding: 6px 12px; font-size: 12px; }
+        .btn-cargando { opacity: 0.7; pointer-events: none; }
+
+        .modal-overlay {
+            display: none; position: fixed; inset: 0;
+            background: rgba(0,0,0,0.5); z-index: 100;
+            justify-content: center; align-items: center;
+        }
+        .modal-overlay.visible { display: flex; }
+        .modal {
+            background: white; border-radius: 16px; padding: 32px;
+            width: 480px; max-width: 95vw; max-height: 90vh; overflow-y: auto;
+        }
+        .modal h3 { font-size: 18px; font-weight: 800; color: #0f172a; margin-bottom: 20px; }
+        .campo { margin-bottom: 16px; }
+        .campo label { display: block; font-size: 13px; font-weight: 600; color: #475569; margin-bottom: 6px; }
+        .campo input[type=text], .campo input[type=email], .campo input[type=password] {
+            width: 100%; padding: 10px 12px; border: 1.5px solid #e2e8f0;
+            border-radius: 8px; font-size: 14px; color: #0f172a; transition: border 0.2s;
+        }
+        .campo input:focus { outline: none; border-color: #00b896; }
+        .campo .ayuda { font-size: 12px; color: #94a3b8; margin-top: 4px; }
+        .check { display: flex; align-items: center; gap: 10px; font-size: 14px; color: #475569;
+                 cursor: pointer; padding: 12px; border: 1.5px solid #e2e8f0; border-radius: 8px; }
+        .check input { width: 16px; height: 16px; accent-color: #00b896; }
+        .modal-footer { display: flex; gap: 10px; justify-content: flex-end; margin-top: 24px; }
+
+        .toast {
+            position: fixed; bottom: 24px; right: 24px;
+            background: #0f172a; color: white; padding: 14px 20px;
+            border-radius: 10px; font-size: 14px; font-weight: 500;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+            opacity: 0; transform: translateY(10px);
+            transition: all 0.3s; z-index: 200;
+        }
+        .toast.show { opacity: 1; transform: translateY(0); }
+        .toast.verde { border-left: 4px solid #00b896; }
+        .toast.rojo  { border-left: 4px solid #ef4444; }
+        .sin-datos { text-align: center; padding: 40px; color: #94a3b8; font-size: 15px; }
+    </style>
+</head>
+<body>
+
+<div class="sidebar">
+    <div class="logo">⬡ BIOCORE</div>
+    <nav>
+        <a href="/admin/dashboard">📊 Dashboard</a>
+        <a href="/admin/usuarios">👥 Empleados</a>
+        <a href="/admin/reportes">📋 Reportes</a>
+        <a href="/admin/justificaciones">📝 Justificaciones</a>
+        {% if admin.es_superadmin %}
+        <a href="/admin/admins" class="activo">🔐 Administradores</a>
+        <a href="/admin/auditoria">🛡️ Auditoría</a>
+        {% endif %}
+    </nav>
+    <div class="admin-info">
+        <strong>{{ admin.nombre }}</strong>
+        {{ "Superadmin" if admin.es_superadmin else "Administrador" }}
+    </div>
+    <a href="/admin/logout" class="logout">⎋ Cerrar sesión</a>
+</div>
+
+<div class="main">
+    <div class="topbar">
+        <h1>🔐 Administradores</h1>
+    </div>
+
+    <div class="seccion">
+        <div class="seccion-header">
+            <h2>Cuentas de administrador</h2>
+            <button class="btn btn-verde" onclick="abrirModalCrear()">＋ Nuevo administrador</button>
+        </div>
+
+        {% if admins %}
+        <div class="tabla-scroll">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Nombre</th>
+                        <th>Email</th>
+                        <th>Rol</th>
+                        <th>Creado</th>
+                        <th>Último acceso</th>
+                        <th>Acciones</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for a in admins %}
+                    <tr>
+                        <td>
+                            <strong>{{ a.nombre }}</strong>
+                            {% if a.id == admin.id %}<span class="badge-tu">Tú</span>{% endif %}
+                        </td>
+                        <td>{{ a.email }}</td>
+                        <td>
+                            {% if a.es_superadmin %}
+                            <span class="badge-activo">Superadmin</span>
+                            {% else %}
+                            <span class="badge-gris">Administrador</span>
+                            {% endif %}
+                        </td>
+                        <td class="nowrap fecha" data-utc="{{ a.creado_en.isoformat() if a.creado_en else '' }}">—</td>
+                        <td class="nowrap fecha" data-utc="{{ a.ultimo_login.isoformat() if a.ultimo_login else '' }}">Nunca</td>
+                        <td style="display:flex; gap:8px; flex-wrap:wrap;">
+                            <button class="btn btn-azul btn-sm"
+                                    data-id="{{ a.id }}" data-nombre="{{ a.nombre }}"
+                                    onclick="abrirModalPassword(this)">🔑 Cambiar contraseña</button>
+                            {% if a.id != admin.id %}
+                            <button class="btn btn-rojo btn-sm"
+                                    data-id="{{ a.id }}" data-nombre="{{ a.nombre }}"
+                                    onclick="eliminar(this)">Eliminar</button>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="sin-datos">No hay administradores registrados.</div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- MODAL CREAR -->
+<div class="modal-overlay" id="modalCrear">
+    <div class="modal">
+        <h3>➕ Nuevo administrador</h3>
+        <div class="campo">
+            <label>Nombre</label>
+            <input type="text" id="c-nombre" placeholder="María López">
+        </div>
+        <div class="campo">
+            <label>Email</label>
+            <input type="email" id="c-email" placeholder="maria@empresa.com">
+        </div>
+        <div class="campo">
+            <label>Contraseña temporal</label>
+            <input type="password" id="c-password" autocomplete="new-password">
+            <div class="ayuda">Mínimo 8 caracteres. Compártela de forma segura y pídele que la cambie.</div>
+        </div>
+        <label class="check">
+            <input type="checkbox" id="c-super">
+            Es superadministrador (puede crear y eliminar administradores)
+        </label>
+        <div class="modal-footer">
+            <button class="btn btn-gris" onclick="cerrarModal('modalCrear')">Cancelar</button>
+            <button class="btn btn-verde" id="btn-crear" onclick="crearAdmin()">Crear administrador</button>
+        </div>
+    </div>
+</div>
+
+<!-- MODAL CAMBIAR CONTRASEÑA -->
+<div class="modal-overlay" id="modalPassword">
+    <div class="modal">
+        <h3>🔑 Cambiar contraseña</h3>
+        <p id="p-nombre" style="font-size:14px; color:#475569; margin-bottom:16px;"></p>
+        <input type="hidden" id="p-id">
+        <div class="campo">
+            <label>Nueva contraseña</label>
+            <input type="password" id="p-password" autocomplete="new-password">
+            <div class="ayuda">Mínimo 8 caracteres.</div>
+        </div>
+        <div class="campo">
+            <label>Confirmar contraseña</label>
+            <input type="password" id="p-password2" autocomplete="new-password">
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-gris" onclick="cerrarModal('modalPassword')">Cancelar</button>
+            <button class="btn btn-verde" id="btn-pass" onclick="guardarPassword()">Guardar contraseña</button>
+        </div>
+    </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+function mostrarToast(msg, tipo = 'verde') {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.className = `toast ${tipo} show`;
+    setTimeout(() => t.classList.remove('show'), 3000);
+}
+function cerrarModal(id) { document.getElementById(id).classList.remove('visible'); }
+
+// Fechas: el servidor guarda en UTC → se muestran en hora local
+document.querySelectorAll('td.fecha').forEach(td => {
+    const s = td.dataset.utc;
+    if (!s) return;
+    const d = new Date(/[zZ]|[+-]\d\d:?\d\d$/.test(s) ? s : s + 'Z');
+    if (!isNaN(d)) td.textContent = d.toLocaleString('es-SV', {
+        day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit', hour12:false });
+});
+
+async function leerRespuesta(r) {
+    try { return await r.json(); } catch { return {}; }
+}
+
+// ── Crear ──────────────────────────────────────────────────────────
+function abrirModalCrear() {
+    ['c-nombre', 'c-email', 'c-password'].forEach(i => document.getElementById(i).value = '');
+    document.getElementById('c-super').checked = false;
+    document.getElementById('modalCrear').classList.add('visible');
+}
+
+async function crearAdmin() {
+    const pw = document.getElementById('c-password').value;
+    if (pw.length < 8) { mostrarToast('❌ La contraseña debe tener al menos 8 caracteres', 'rojo'); return; }
+
+    const btn = document.getElementById('btn-crear');
+    btn.classList.add('btn-cargando'); btn.textContent = 'Creando…';
+
+    const fd = new FormData();
+    fd.append('nombre', document.getElementById('c-nombre').value);
+    fd.append('email', document.getElementById('c-email').value);
+    fd.append('password', pw);
+    fd.append('es_superadmin', document.getElementById('c-super').checked ? 'true' : 'false');
+
+    const r = await fetch('/admin/admins/crear', { method: 'POST', body: fd });
+    const data = await leerRespuesta(r);
+
+    btn.classList.remove('btn-cargando'); btn.textContent = 'Crear administrador';
+    if (r.ok) {
+        mostrarToast('✅ Administrador creado');
+        cerrarModal('modalCrear');
+        setTimeout(() => location.reload(), 1200);
+    } else {
+        mostrarToast('❌ ' + (data.detail || 'Error al crear'), 'rojo');
+    }
+}
+
+// ── Cambiar contraseña ─────────────────────────────────────────────
+function abrirModalPassword(btn) {
+    document.getElementById('p-id').value = btn.dataset.id;
+    document.getElementById('p-nombre').textContent = 'Administrador: ' + btn.dataset.nombre;
+    document.getElementById('p-password').value = '';
+    document.getElementById('p-password2').value = '';
+    document.getElementById('modalPassword').classList.add('visible');
+}
+
+async function guardarPassword() {
+    const pw = document.getElementById('p-password').value;
+    const pw2 = document.getElementById('p-password2').value;
+    if (pw.length < 8) { mostrarToast('❌ La contraseña debe tener al menos 8 caracteres', 'rojo'); return; }
+    if (pw !== pw2) { mostrarToast('❌ Las contraseñas no coinciden', 'rojo'); return; }
+
+    const btn = document.getElementById('btn-pass');
+    btn.classList.add('btn-cargando'); btn.textContent = 'Guardando…';
+
+    const fd = new FormData();
+    fd.append('password', pw);
+    const r = await fetch(`/admin/admins/${document.getElementById('p-id').value}/password`,
+                          { method: 'PUT', body: fd });
+    const data = await leerRespuesta(r);
+
+    btn.classList.remove('btn-cargando'); btn.textContent = 'Guardar contraseña';
+    if (r.ok) {
+        mostrarToast('✅ Contraseña actualizada');
+        cerrarModal('modalPassword');
+    } else {
+        mostrarToast('❌ ' + (data.detail || 'Error al guardar'), 'rojo');
+    }
+}
+
+// ── Eliminar ───────────────────────────────────────────────────────
+async function eliminar(btn) {
+    if (!confirm(`¿Eliminar al administrador ${btn.dataset.nombre}? Esta acción no se puede deshacer.`)) return;
+    const r = await fetch(`/admin/admins/${btn.dataset.id}`, { method: 'DELETE' });
+    const data = await leerRespuesta(r);
+    if (r.ok) {
+        mostrarToast('✅ Administrador eliminado');
+        setTimeout(() => location.reload(), 1200);
+    } else {
+        mostrarToast('❌ ' + (data.detail || 'Error al eliminar'), 'rojo');
+    }
+}
+
+document.querySelectorAll('.modal-overlay').forEach(overlay => {
+    overlay.addEventListener('click', e => { if (e.target === overlay) overlay.classList.remove('visible'); });
+});
+</script>
+</body>
+</html>
