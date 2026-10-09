@@ -6,12 +6,12 @@
     <title>BIOCORE — Dashboard</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
-        body { background: #f1f5f9; font-family: 'Segoe UI', sans-serif; display: flex; min-height: 100vh; }
+        body { background: #f1f5f9; font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; display: flex; min-height: 100vh; }
 
         .sidebar {
             width: 240px; background: #0f172a; color: white;
             display: flex; flex-direction: column; padding: 24px 0;
-            position: fixed; top: 0; left: 0; bottom: 0;
+            position: fixed; top: 0; left: 0; bottom: 0; z-index: 10;
         }
         .sidebar .logo { font-size: 22px; font-weight: 900; color: #00b896;
                           padding: 0 24px 24px; border-bottom: 1px solid #1e293b; }
@@ -36,7 +36,16 @@
         .main { margin-left: 240px; flex: 1; padding: 32px; }
         .topbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 28px; }
         .topbar h1 { font-size: 24px; color: #0f172a; font-weight: 800; }
+        .topbar-actions { display: flex; align-items: center; gap: 16px; }
         .topbar .fecha { color: #64748b; font-size: 14px; }
+
+        /* Form Control Selector */
+        .select-sucursal {
+            padding: 6px 12px; border-radius: 8px; border: 1px solid #cbd5e1;
+            background: #fff; font-size: 13px; font-weight: 600; color: #1e293b;
+            outline: none; cursor: pointer; transition: border-color 0.2s;
+        }
+        .select-sucursal:focus { border-color: #00b896; }
 
         .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 20px; margin-bottom: 32px; }
         .card {
@@ -44,7 +53,7 @@
             box-shadow: 0 1px 4px rgba(0,0,0,0.07);
         }
         .card .card-label { font-size: 12px; color: #64748b; font-weight: 600;
-                             text-transform: uppercase; letter-spacing: 1px; }
+                              text-transform: uppercase; letter-spacing: 1px; }
         .card .card-valor { font-size: 36px; font-weight: 900; color: #0f172a; margin-top: 8px; }
         .card .card-sub   { font-size: 12px; color: #94a3b8; margin-top: 4px; }
         .card.verde   .card-valor { color: #00b896; }
@@ -65,13 +74,6 @@
         .badge-extras    { background: #fef3c7; color: #92400e; padding: 3px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; }
         .badge-tardanza  { background: #fee2e2; color: #991b1b; padding: 3px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; }
         .badge-ok        { background: #dcfce7; color: #166534; padding: 3px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; }
-
-        .token-info {
-            background: #fffbeb; border: 1px solid #fde68a;
-            border-radius: 10px; padding: 10px 16px;
-            font-size: 12px; color: #92400e;
-            display: flex; align-items: center; gap: 8px;
-        }
     </style>
 </head>
 <body>
@@ -79,13 +81,14 @@
 <div class="sidebar">
     <div class="logo">⬡ BIOCORE</div>
     <nav>
-        <a href="/admin/dashboard">📊 Dashboard</a>
+        <a href="/admin/dashboard" class="activo">📊 Dashboard</a>
         <a href="/admin/usuarios">👥 Empleados</a>
-        <a href="/admin/reportes" class="activo">📋 Reportes</a>
+        <a href="/admin/reportes">📋 Reportes</a>
         <a href="/admin/justificaciones">📝 Justificaciones</a>
         {% if admin.es_superadmin %}
-        <a href="/admin/admins">🔐 Administradores</a>
-           <a href="/admin/auditoria">🛡️ Auditoría</a>
+            <a href="/admin/sucursales">🏢 Sucursales</a>
+            <a href="/admin/admins">🔐 Administradores</a>
+            <a href="/admin/auditoria">🛡️ Auditoría</a>
         {% endif %}
     </nav>
     <div class="admin-info">
@@ -98,7 +101,20 @@
 <div class="main">
     <div class="topbar">
         <h1>Dashboard</h1>
-        <span class="fecha">📅 {{ hoy }}</span>
+        <div class="topbar-actions">
+            {% if sucursales|length > 1 %}
+            <div style="display: flex; align-items: center; gap: 8px;">
+                <label style="font-size: 13px; font-weight: 600; color: #64748b;">Sucursal:</label>
+                <select class="select-sucursal" onchange="location.href='?sucursal_id=' + this.value">
+                    <option value="">Todas las asignadas</option>
+                    {% for s in sucursales %}
+                        <option value="{{ s.id }}" {% if sucursal_sel == s.id %}selected{% endif %}>{{ s.nombre }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            {% endif %}
+            <span class="fecha">📅 {{ hoy }}</span>
+        </div>
     </div>
 
     <div class="cards">
@@ -149,7 +165,14 @@
 </div>
 
 <script>
-fetch('/admin/resumen/semana')
+const urlParams = new URLSearchParams(window.location.search);
+const sucursalId = urlParams.get('sucursal_id');
+let fetchUrl = '/admin/resumen/semana';
+if (sucursalId) {
+    fetchUrl += `?sucursal_id=${sucursalId}`;
+}
+
+fetch(fetchUrl)
     .then(r => {
         if (r.status === 401) { window.location = '/admin/login?expired=1'; return; }
         return r.json();
