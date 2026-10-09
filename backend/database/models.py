@@ -1,6 +1,19 @@
 import enum
 from datetime import datetime
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, Time, Float, Text, Enum, ForeignKey, Table
+from sqlalchemy import (
+    Column,
+    Integer,
+    String,
+    Boolean,
+    DateTime,
+    Time,
+    Float,
+    Text,
+    Enum,
+    ForeignKey,
+    Table,
+    JSON,
+)
 from sqlalchemy.orm import relationship
 from database.connection import Base
 
@@ -149,6 +162,6 @@ class LogAuditoria(Base):
     admin_id = Column(Integer, ForeignKey("administradores.id"), nullable=True)
     admin_email = Column(String(150), nullable=False)
     accion = Column(Enum(TipoAccion), nullable=False)
-    detalle = Column(Text, nullable=True)  # JSON o string descriptivo
+    detalle = Column(JSON, nullable=True)  # Mapeado como JSON nativo de SQLAlchemy
     ip = Column(String(45), nullable=True)
     fecha_hora = Column(DateTime, default=datetime.utcnow)
