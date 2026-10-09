@@ -125,6 +125,13 @@ def obtener_admin_actual(request: Request, db: Session = Depends(get_db)) -> dic
     }
 
 
+def requiere_superadmin(admin=Depends(obtener_admin_actual)) -> dict:
+    """Middleware/Dependencia para restringir rutas a sólo superadministradores."""
+    if not admin.get("es_superadmin"):
+        raise HTTPException(status_code=403, detail="Solo superadministradores")
+    return admin
+
+
 # ══════════════════════════════════════════
 # HELPER AUDITORÍA
 # ══════════════════════════════════════════
@@ -416,26 +423,115 @@ async def desactivar_usuario(
 # ADMINS (solo superadmin)
 # ══════════════════════════════════════════
 
+@router.get("/admin/admins", response_class=HTMLResponse)
+@router.get("/admins", response_class=HTMLResponse)
+async def admins_page(
+    request: Request,
+    admin=Depends(requiere_superadmin),
+    db: Session = Depends(get_db),
+):
+    admins = db.query(Administrador).order_by(Administrador.id).all()
+    return templates.TemplateResponse(
+        request, "admin_admins.html", {"admin": admin, "admins": admins}
+    )
+
+
 @router.post("/admin/admins/crear")
-async def crear_admin(
+@router.post("/admins/crear")
+async def admins_crear(
+    request: Request,
     nombre: str = Form(...),
     email: str = Form(...),
     password: str = Form(...),
+    es_superadmin: str = Form("false"),
+    admin=Depends(requiere_superadmin),
     db: Session = Depends(get_db),
-    admin=Depends(obtener_admin_actual),
 ):
-    if not admin["es_superadmin"]:
-        raise HTTPException(403, "Solo el superadmin puede crear administradores")
-    existe = db.query(Administrador).filter(Administrador.email == email).first()
+    email_clean = email.strip().lower()
+    if len(password) < 8:
+        raise HTTPException(400, "La contraseña debe tener al menos 8 caracteres")
+
+    existe = db.query(Administrador).filter(sqlfunc.lower(Administrador.email) == email_clean).first()
     if existe:
-        raise HTTPException(400, "Email ya existe")
+        raise HTTPException(409, "Ya existe un administrador con ese email")
+
+    es_super_bool = es_superadmin.lower() == "true"
     a = Administrador(
-        nombre=nombre,
-        email=email,
+        nombre=nombre.strip(),
+        email=email_clean,
         password_hash=hashear_password(password),
     )
+    if hasattr(a, "es_superadmin"):
+        a.es_superadmin = es_super_bool
+
     db.add(a)
     db.commit()
+
+    _log(
+        db,
+        admin,
+        TipoAccion.CREAR_ADMINISTRADOR if hasattr(TipoAccion, "CREAR_ADMINISTRADOR") else TipoAccion.CREAR_USUARIO,
+        {"email": email_clean, "es_superadmin": es_super_bool},
+        _ip(request),
+    )
+    return {"ok": True}
+
+
+@router.put("/admin/admins/{admin_id}/password")
+@router.put("/admins/{admin_id}/password")
+async def admins_password(
+    admin_id: int,
+    request: Request,
+    password: str = Form(...),
+    admin=Depends(requiere_superadmin),
+    db: Session = Depends(get_db),
+):
+    if len(password) < 8:
+        raise HTTPException(400, "La contraseña debe tener al menos 8 caracteres")
+
+    target_admin = db.query(Administrador).filter(Administrador.id == admin_id).first()
+    if not target_admin:
+        raise HTTPException(404, "Administrador no encontrado")
+
+    target_admin.password_hash = hashear_password(password)
+    db.commit()
+
+    _log(
+        db,
+        admin,
+        TipoAccion.CAMBIAR_PASSWORD_ADMIN if hasattr(TipoAccion, "CAMBIAR_PASSWORD_ADMIN") else TipoAccion.ACTUALIZAR_HORARIO,
+        {"target_admin_id": admin_id, "email": target_admin.email},
+        _ip(request),
+    )
+    return {"ok": True}
+
+
+@router.delete("/admin/admins/{admin_id}")
+@router.delete("/admins/{admin_id}")
+async def admins_eliminar(
+    admin_id: int,
+    request: Request,
+    admin=Depends(requiere_superadmin),
+    db: Session = Depends(get_db),
+):
+    if admin_id == admin["id"]:
+        raise HTTPException(400, "No puedes eliminar tu propia cuenta")
+
+    target_admin = db.query(Administrador).filter(Administrador.id == admin_id).first()
+    if not target_admin:
+        raise HTTPException(404, "Administrador no encontrado")
+
+    email_borrado = target_admin.email
+    db.delete(target_admin)
+    db.commit()
+
+    _log(
+        db,
+        admin,
+        TipoAccion.ELIMINAR_ADMIN if hasattr(TipoAccion, "ELIMINAR_ADMIN") else TipoAccion.DESACTIVAR_USUARIO,
+        {"deleted_admin_id": admin_id, "email": email_borrado},
+        _ip(request),
+    )
     return {"ok": True}
 
 
@@ -446,10 +542,8 @@ async def crear_admin(
 @router.get("/admin/auditoria", response_class=HTMLResponse)
 async def auditoria_page(
     request: Request,
-    admin=Depends(obtener_admin_actual),
+    admin=Depends(requiere_superadmin),
 ):
-    if not admin["es_superadmin"]:
-        raise HTTPException(403, "Acceso restringido al superadmin")
     return templates.TemplateResponse(
         request, "admin_auditoria.html", {"admin": admin}
     )
@@ -460,11 +554,8 @@ async def ver_auditoria(
     pagina: int = 1,
     por_pagina: int = 50,
     db: Session = Depends(get_db),
-    admin=Depends(obtener_admin_actual),
+    admin=Depends(requiere_superadmin),
 ):
-    if not admin["es_superadmin"]:
-        raise HTTPException(403, "Acceso restringido al superadmin")
-
     offset = (pagina - 1) * por_pagina
     total = db.query(LogAuditoria).count()
     logs = (
