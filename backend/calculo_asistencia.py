@@ -1,7 +1,7 @@
 import zoneinfo
 from datetime import datetime, timedelta, time, date
 from typing import List, Dict, Any
-from models import Usuario, Marcaje, TipoMarcaje, Sucursal
+from database.models import Usuario, Marcaje, TipoMarcaje, Sucursal  # <-- CAMBIO AQUÍ
 
 
 def normalizar_tipo_marcaje(tipo) -> str:
