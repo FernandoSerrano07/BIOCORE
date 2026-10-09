@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BIOCORE — Auditoría</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { background: #f1f5f9; font-family: 'Segoe UI', sans-serif; display: flex; min-height: 100vh; }
+
+        .sidebar {
+            width: 240px; background: #0f172a; color: white;
+            display: flex; flex-direction: column; padding: 24px 0;
+            position: fixed; top: 0; left: 0; bottom: 0;
+        }
+        .sidebar .logo { font-size: 22px; font-weight: 900; color: #00b896;
+                          padding: 0 24px 24px; border-bottom: 1px solid #1e293b; }
+        .sidebar nav { flex: 1; padding: 16px 0; }
+        .sidebar nav a {
+            display: flex; align-items: center; gap: 12px;
+            padding: 12px 24px; color: #94a3b8; text-decoration: none;
+            font-size: 14px; font-weight: 500; transition: all 0.2s;
+        }
+        .sidebar nav a:hover, .sidebar nav a.activo {
+            background: #1e293b; color: #00b896;
+            border-right: 3px solid #00b896;
+        }
+        .sidebar .admin-info {
+            padding: 16px 24px; border-top: 1px solid #1e293b;
+            font-size: 12px; color: #64748b;
+        }
+        .sidebar .admin-info strong { display: block; color: #cbd5e1; font-size: 13px; }
+        .sidebar .logout { display: block; padding: 10px 24px; color: #ef4444;
+                            text-decoration: none; font-size: 13px; }
+
+        .main { margin-left: 240px; flex: 1; padding: 32px; min-width: 0; }
+        .topbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 28px; }
+        .topbar h1 { font-size: 24px; color: #0f172a; font-weight: 800; }
+
+        .seccion { background: white; border-radius: 16px; padding: 24px;
+                   box-shadow: 0 1px 4px rgba(0,0,0,0.07); }
+        .seccion-header { display: flex; justify-content: space-between; align-items: center;
+                          margin-bottom: 20px; gap: 16px; flex-wrap: wrap; }
+        .seccion-header h2 { font-size: 16px; font-weight: 700; color: #0f172a; }
+        .filtros { display: flex; gap: 10px; flex-wrap: wrap; }
+        .filtros input, .filtros select {
+            padding: 10px 12px; border: 1.5px solid #e2e8f0; border-radius: 8px;
+            font-size: 14px; color: #0f172a; transition: border 0.2s; background: white;
+        }
+        .filtros input { width: 260px; max-width: 100%; }
+        .filtros input:focus, .filtros select:focus { outline: none; border-color: #00b896; }
+
+        .tabla-scroll { overflow-x: auto; }
+        table { width: 100%; border-collapse: collapse; font-size: 14px; }
+        th { text-align: left; padding: 10px 12px; background: #f8fafc;
+             color: #64748b; font-weight: 600; font-size: 12px; text-transform: uppercase;
+             white-space: nowrap; }
+        td { padding: 12px; border-top: 1px solid #f1f5f9; color: #1e293b; vertical-align: middle; }
+        tr:hover td { background: #f8fafc; }
+        td.nowrap { white-space: nowrap; }
+        td.mono { font-family: Consolas, monospace; font-size: 13px; color: #475569; }
+
+        .badge { padding: 3px 10px; border-radius: 20px; font-size: 12px; font-weight: 600;
+                 white-space: nowrap; display: inline-block; }
+        .badge-verde { background: #dcfce7; color: #166534; }
+        .badge-azul  { background: #eff6ff; color: #1d4ed8; }
+        .badge-rojo  { background: #fee2e2; color: #991b1b; }
+        .badge-gris  { background: #f1f5f9; color: #475569; }
+
+        .detalle { display: flex; flex-wrap: wrap; gap: 6px; }
+        .chip { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px;
+                padding: 2px 8px; font-size: 12px; color: #475569; }
+        .chip b { color: #0f172a; font-weight: 600; }
+
+        .btn { padding: 8px 16px; border-radius: 8px; border: none; cursor: pointer;
+               font-size: 13px; font-weight: 600; transition: all 0.2s; }
+        .btn-gris { background: #f1f5f9; color: #475569; }
+        .btn-gris:hover { background: #e2e8f0; }
+        .btn-gris:disabled { opacity: 0.5; cursor: default; }
+
+        .paginacion { display: flex; justify-content: space-between; align-items: center;
+                      margin-top: 16px; font-size: 13px; color: #64748b; }
+        .paginacion .botones { display: flex; gap: 8px; }
+        .sin-datos { text-align: center; padding: 40px; color: #94a3b8; font-size: 15px; }
+    </style>
+</head>
+<body>
+
+<div class="sidebar">
+    <div class="logo">⬡ BIOCORE</div>
+    <nav>
+        <a href="/admin/dashboard">📊 Dashboard</a>
+        <a href="/admin/usuarios">👥 Empleados</a>
+        <a href="/admin/reportes">📋 Reportes</a>
+        <a href="/admin/justificaciones">📝 Justificaciones</a>
+        <a href="/admin/auditoria" class="activo">🛡️ Auditoría</a>
+        {% if admin.es_superadmin %}
+        <a href="/admin/admins">🔐 Administradores</a>
+        {% endif %}
+    </nav>
+    <div class="admin-info">
+        <strong>{{ admin.nombre }}</strong>
+        {{ "Superadmin" if admin.es_superadmin else "Administrador" }}
+    </div>
+    <a href="/admin/logout" class="logout">⎋ Cerrar sesión</a>
+</div>
+
+<div class="main">
+    <div class="topbar">
+        <h1>🛡️ Auditoría</h1>
+    </div>
+
+    <div class="seccion">
+        <div class="seccion-header">
+            <h2>Registro de actividad <span id="total" style="color:#94a3b8; font-weight:500;"></span></h2>
+            <div class="filtros">
+                <select id="f-accion" onchange="render()">
+                    <option value="">Todas las acciones</option>
+                </select>
+                <input type="text" id="buscador" placeholder="🔍 Buscar en esta página…" oninput="render()">
+            </div>
+        </div>
+
+        <div class="tabla-scroll">
+            <table>
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Fecha y hora</th>
+                        <th>Administrador</th>
+                        <th>Acción</th>
+                        <th>Detalle</th>
+                        <th>IP</th>
+                    </tr>
+                </thead>
+                <tbody id="tbody"></tbody>
+            </table>
+        </div>
+        <div class="sin-datos" id="msg" style="display:none;"></div>
+
+        <div class="paginacion">
+            <span id="info-pagina"></span>
+            <div class="botones">
+                <button class="btn btn-gris" id="btn-ant" onclick="irA(pagina - 1)">← Anterior</button>
+                <button class="btn btn-gris" id="btn-sig" onclick="irA(pagina + 1)">Siguiente →</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// Endpoint JSON (el que hoy devuelve la pantalla negra, movido a /admin/auditoria/data)
+const API_URL = '/admin/auditoria/data';
+
+let pagina = 1, total = 0, porPagina = 0, logs = [];
+
+function esc(s) {
+    return String(s ?? '').replace(/[&<>"']/g, c =>
+        ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+// fecha_hora llega sin zona horaria; el servidor guarda en UTC → se muestra en hora local
+function fmtFecha(s) {
+    if (!s) return '—';
+    const d = new Date(/[zZ]|[+-]\d\d:?\d\d$/.test(s) ? s : s + 'Z');
+    if (isNaN(d)) return esc(s);
+    return d.toLocaleString('es-SV', { day:'2-digit', month:'2-digit', year:'numeric',
+        hour:'2-digit', minute:'2-digit', second:'2-digit', hour12:false });
+}
+
+function etiqueta(a) {
+    const t = String(a || '').replace(/_/g, ' ');
+    return t.charAt(0).toUpperCase() + t.slice(1);
+}
+
+function claseBadge(a) {
+    a = String(a || '').toLowerCase();
+    if (/elimin|desactiv|borr|fall|bloque/.test(a)) return 'badge-rojo';
+    if (/login|crear|activ|aprob/.test(a)) return 'badge-verde';
+    if (/export|report|edit|actualiz/.test(a)) return 'badge-azul';
+    return 'badge-gris';
+}
+
+function fmtDetalle(d) {
+    if (d == null || d === '') return '<span style="color:#94a3b8">—</span>';
+    if (typeof d !== 'object') return `<span class="chip">${esc(d)}</span>`;
+    const pares = Object.entries(d);
+    if (!pares.length) return '<span style="color:#94a3b8">—</span>';
+    return '<div class="detalle">' + pares.map(([k, v]) =>
+        `<span class="chip"><b>${esc(k.replace(/_/g, ' '))}:</b> ${esc(typeof v === 'object' ? JSON.stringify(v) : v)}</span>`
+    ).join('') + '</div>';
+}
+
+function llenarAcciones() {
+    const sel = document.getElementById('f-accion');
+    const actual = sel.value;
+    const acciones = [...new Set(logs.map(l => l.accion).filter(Boolean))].sort();
+    sel.innerHTML = '<option value="">Todas las acciones</option>' +
+        acciones.map(a => `<option value="${esc(a)}">${esc(etiqueta(a))}</option>`).join('');
+    sel.value = acciones.includes(actual) ? actual : '';
+}
+
+function render() {
+    const q = document.getElementById('buscador').value.trim().toLowerCase();
+    const acc = document.getElementById('f-accion').value;
+    const visibles = logs.filter(l =>
+        (!acc || l.accion === acc) &&
+        (!q || JSON.stringify(l).toLowerCase().includes(q)));
+
+    document.getElementById('tbody').innerHTML = visibles.map(l => `
+        <tr>
+            <td>${esc(l.id)}</td>
+            <td class="nowrap">${fmtFecha(l.fecha_hora)}</td>
+            <td>${esc(l.admin_email) || '—'}</td>
+            <td><span class="badge ${claseBadge(l.accion)}">${esc(etiqueta(l.accion))}</span></td>
+            <td>${fmtDetalle(l.detalle)}</td>
+            <td class="mono">${esc(l.ip) || '—'}</td>
+        </tr>`).join('');
+
+    const msg = document.getElementById('msg');
+    msg.style.display = visibles.length ? 'none' : 'block';
+    if (!visibles.length) msg.textContent = logs.length ? 'Ningún registro coincide con el filtro.' : 'No hay registros de auditoría aún.';
+
+    const paginas = porPagina ? Math.max(1, Math.ceil(total / porPagina)) : 1;
+    document.getElementById('total').textContent = total ? `(${total})` : '';
+    document.getElementById('info-pagina').textContent = `Página ${pagina} de ${paginas}`;
+    document.getElementById('btn-ant').disabled = pagina <= 1;
+    document.getElementById('btn-sig').disabled = pagina >= paginas;
+}
+
+async function irA(n) {
+    if (n < 1) return;
+    try {
+        const r = await fetch(`${API_URL}?pagina=${n}`, { headers: { 'Accept': 'application/json' } });
+        if (r.status === 401 || r.status === 403) { location.href = '/admin/login'; return; }
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        const data = await r.json();
+        logs = data.logs || [];
+        total = data.total || logs.length;
+        pagina = data.pagina || n;
+        // Tamaño de página: lo que devuelve la primera página llena
+        if (!porPagina || (pagina === 1 && logs.length < total)) porPagina = logs.length || porPagina;
+        llenarAcciones();
+        render();
+    } catch (e) {
+        const msg = document.getElementById('msg');
+        msg.style.display = 'block';
+        msg.textContent = '❌ No se pudo cargar la auditoría (' + e.message + ')';
+    }
+}
+
+irA(1);
+</script>
+</body>
+</html>
